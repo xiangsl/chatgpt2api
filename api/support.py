@@ -112,6 +112,27 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
     return thread
 
 
+def start_account_full_refresh_scheduler(stop_event: Event) -> Thread:
+    def worker() -> None:
+        while not stop_event.is_set():
+            interval_minutes = config.full_refresh_account_interval_minute
+            if interval_minutes > 0:
+                try:
+                    tokens = account_service.list_tokens()
+                    if tokens:
+                        print(f"[account-full-refresh] refreshing {len(tokens)} accounts")
+                        account_service.refresh_accounts(tokens, defer_invalid_removal=False)
+                except Exception as exc:
+                    print(f"[account-full-refresh] fail {exc}")
+                stop_event.wait(interval_minutes * 60)
+            else:
+                stop_event.wait(60)
+
+    thread = Thread(target=worker, name="account-full-refresh", daemon=True)
+    thread.start()
+    return thread
+
+
 def resolve_web_asset(requested_path: str) -> Path | None:
     if not WEB_DIST_DIR.exists():
         return None

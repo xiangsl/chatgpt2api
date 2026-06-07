@@ -1,0 +1,1 @@
+https://docs.apimart.ai/en/api-reference/images/gpt-image-2/generation

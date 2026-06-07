@@ -1,9 +1,10 @@
 {
-  "auth-key": "chatgpt2api",
+  "auth-key": "Abcd@19860202",
   "refresh_account_interval_minute": 60,
-  "image_retention_days": 15,
-  "image_poll_timeout_secs": 120,
-  "auto_remove_rate_limited_accounts": false,
+  "full_refresh_account_interval_minute": 20,
+  "image_retention_days": 5,
+  "image_poll_timeout_secs": 180,
+  "auto_remove_rate_limited_accounts": true,
   "auto_remove_invalid_accounts": true,
   "log_levels": [
     "debug",

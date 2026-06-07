@@ -62,7 +62,7 @@ export default function LoginPage() {
               <LockKeyhole className="size-5" />
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">欢迎回来</h1>
+              <h1 className="text-3xl font-semibold tracking-tight text-stone-950">先知画图-欢迎回来</h1>
               <p className="text-sm leading-6 text-stone-500">输入密钥后继续使用账号管理和图片生成功能。</p>
             </div>
           </div>
