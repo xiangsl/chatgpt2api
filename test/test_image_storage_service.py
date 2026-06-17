@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,6 +62,7 @@ class ImageStorageServiceTests(unittest.TestCase):
         self.addCleanup(self.config_patcher.stop)
         self.mock_config.images_dir = self.images_dir
         self.mock_config.base_url = "http://app.test"
+        self.mock_config.if_write_image = True
         self.mock_config.cleanup_old_images.return_value = 0
         self.mock_config.get_image_storage_settings.side_effect = lambda: dict(self.settings)
         FakeWebDAVClient.uploaded = {}
@@ -68,6 +70,16 @@ class ImageStorageServiceTests(unittest.TestCase):
 
     def service(self) -> ImageStorageService:
         return ImageStorageService(self.data_dir / "image_index.json")
+
+    def test_save_skips_disk_when_if_write_image_disabled(self):
+        self.mock_config.if_write_image = False
+        stored = self.service().save(png_bytes(), "http://app.test")
+
+        self.assertEqual(stored.storage, "none")
+        self.assertEqual(stored.url, "")
+        self.assertFalse(self.service().index_file.exists())
+        self.assertFalse(list(self.images_dir.rglob("*")))
+        self.mock_config.cleanup_old_images.assert_not_called()
 
     def test_local_mode_saves_to_local_directory(self):
         stored = self.service().save(png_bytes(), "http://app.test")
@@ -120,6 +132,28 @@ class ImageStorageServiceTests(unittest.TestCase):
         self.assertTrue((self.images_dir / stored.rel).is_file())
         self.assertIn(stored.rel, FakeWebDAVClient.uploaded)
         self.assertEqual(stored.url, f"https://cdn.example.test/images/{stored.rel}")
+
+    def test_index_keeps_only_latest_300_entries(self):
+        service = self.service()
+        payload = png_bytes()
+        rels = [f"2026/06/08/{index:04d}_abc.png" for index in range(305)]
+        timestamps = [f"2026-06-08 12:00:{index:02d}" for index in range(305)]
+
+        for rel, created_at in zip(rels, timestamps, strict=True):
+            path = self.images_dir / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            with (
+                mock.patch.object(service, "make_relative_path", return_value=rel),
+                mock.patch("services.image_storage_service._now_iso", return_value=created_at),
+            ):
+                service.save(payload, "http://app.test")
+
+        saved = json.loads(service.index_file.read_text(encoding="utf-8"))
+        items = saved["items"]
+        self.assertEqual(len(items), 300)
+        self.assertNotIn("2026/06/08/0000_abc.png", items)
+        self.assertIn("2026/06/08/0304_abc.png", items)
 
     def test_test_webdav_writes_and_deletes_probe_file(self):
         self.settings.update({

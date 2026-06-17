@@ -151,7 +151,7 @@ export function ConfigCard() {
               placeholder="30"
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
-            <p className="text-xs text-stone-500">自动删除多少天前的本地图片。</p>
+            <p className="text-xs text-stone-500">自动删除多少天前的本地图片，支持小数（如 0.5 表示 12 小时）。</p>
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">图片轮询超时</label>

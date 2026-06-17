@@ -204,12 +204,14 @@ def apply_resized_image_to_result_item(
     base_url: str | None,
 ) -> None:
     encoded = base64.b64encode(image_bytes).decode("ascii")
+    image_url = save_image_bytes(image_bytes, base_url)
     if response_format == "b64_json":
         item["b64_json"] = encoded
-        item["url"] = save_image_bytes(image_bytes, base_url)
+        if image_url:
+            item["url"] = image_url
         return
     item.pop("b64_json", None)
-    item["url"] = save_image_bytes(image_bytes, base_url)
+    item["url"] = image_url
 
 
 def resize_image_bytes(image_bytes: bytes, width: int, height: int) -> bytes:

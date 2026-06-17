@@ -18,6 +18,7 @@ from services.config import DATA_DIR, config
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
+IMAGE_INDEX_MAX_ITEMS = 300
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -186,8 +187,18 @@ class ImageStorageService:
         items = self._load_index()
         return {rel: item for rel, item in items.items() if _is_image_rel(rel)}
 
+    def _trim_index(self, items: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+        if len(items) <= IMAGE_INDEX_MAX_ITEMS:
+            return items
+        keep_rels = sorted(
+            items.keys(),
+            key=lambda rel: str(items[rel].get("created_at") or ""),
+            reverse=True,
+        )[:IMAGE_INDEX_MAX_ITEMS]
+        return {rel: items[rel] for rel in keep_rels}
+
     def _save_index(self, items: dict[str, dict[str, object]]) -> None:
-        _write_json_object(self.index_file, {"items": items})
+        _write_json_object(self.index_file, {"items": self._trim_index(items)})
 
     def _public_url(self, rel: str, base_url: str | None = None) -> str:
         settings = self.settings()
@@ -203,6 +214,8 @@ class ImageStorageService:
         return f"{relative_dir.as_posix()}/{filename}"
 
     def save(self, image_data: bytes, base_url: str | None = None) -> StoredImage:
+        if not config.if_write_image:
+            return StoredImage(rel="", url="", storage="none", size=len(image_data))
         config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
         mode = self.mode()
@@ -298,7 +311,6 @@ class ImageStorageService:
                 }
                 changed = True
 
-            items: list[dict[str, object]] = []
             for rel, item in list(indexed.items()):
                 if not _is_image_rel(rel):
                     indexed.pop(rel, None)
@@ -319,6 +331,13 @@ class ImageStorageService:
                     }
                     indexed[rel] = item
                     changed = True
+
+            trimmed = self._trim_index(indexed)
+            if len(trimmed) != len(indexed):
+                changed = True
+            indexed = trimmed
+            items: list[dict[str, object]] = []
+            for rel, item in indexed.items():
                 day = str(item.get("date") or "")
                 if start_date and day < start_date:
                     continue

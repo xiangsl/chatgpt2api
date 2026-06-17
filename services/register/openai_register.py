@@ -54,8 +54,47 @@ sec_ch_ua_full_version_list = '"Chromium";v="145.0.0.0", "Not:A-Brand";v="99.0.0
 default_timeout = 30
 print_lock = threading.Lock()
 stats_lock = threading.Lock()
+openai_proxy_lock = threading.Lock()
+cloudflare_fail_count = 0
+force_openai_proxy = False
 stats = {"done": 0, "success": 0, "fail": 0, "start_time": 0.0}
 register_log_sink = None
+
+
+def _openai_proxy_threshold() -> int:
+    return max(1, int(config.get("threads") or 1)) * 3
+
+
+def reset_openai_proxy_state() -> None:
+    global cloudflare_fail_count, force_openai_proxy
+    with openai_proxy_lock:
+        cloudflare_fail_count = 0
+        force_openai_proxy = False
+
+
+def resolve_openai_proxy() -> str:
+    with openai_proxy_lock:
+        if force_openai_proxy:
+            return str(config.get("proxy") or "").strip()
+        return ""
+
+
+def record_openai_cloudflare_failure() -> None:
+    global cloudflare_fail_count, force_openai_proxy
+    with openai_proxy_lock:
+        cloudflare_fail_count += 1
+        threshold = _openai_proxy_threshold()
+        if cloudflare_fail_count >= threshold and not force_openai_proxy:
+            force_openai_proxy = True
+            log(
+                f"本地连续 Cloudflare 失败 {cloudflare_fail_count} 次（阈值 {threshold}），"
+                "后续 OpenAI 注册将走代理直到成功",
+                "yellow",
+            )
+
+
+def record_openai_registration_success() -> None:
+    reset_openai_proxy_state()
 
 common_headers = {
     "accept": "application/json",
@@ -303,14 +342,23 @@ def request_platform_oauth_token(session: requests.Session, code: str, code_veri
 
 
 class PlatformRegistrar:
-    def __init__(self, proxy: str = "") -> None:
-        self.session = create_session(proxy)
+    def __init__(self) -> None:
+        self.session: Any = None
+        self.openai_proxy_used = ""
         self.device_id = str(uuid.uuid4())
         self.code_verifier = ""
         self.platform_auth_code = ""
 
+    def _open_openai_session(self, proxy: str = "") -> None:
+        if self.session is not None:
+            self.session.close()
+        self.openai_proxy_used = proxy
+        self.session = create_session(proxy)
+
     def close(self) -> None:
-        self.session.close()
+        if self.session is not None:
+            self.session.close()
+            self.session = None
 
     def _navigate_headers(self, referer: str = "") -> dict[str, str]:
         headers = dict(navigate_headers)
@@ -425,6 +473,12 @@ class PlatformRegistrar:
         step(index, f"邮箱创建完成[{label}]: {email}")
         password = _random_password()
         first_name, last_name = _random_name()
+        proxy = resolve_openai_proxy()
+        if proxy:
+            step(index, f"OpenAI 注册走代理（本地连续 Cloudflare 失败已达阈值）", "yellow")
+        else:
+            step(index, "OpenAI 注册走本地网络")
+        self._open_openai_session(proxy)
         self._platform_authorize(email, index)
         self._register_user(email, password, index)
         self._send_otp(index)
@@ -449,7 +503,7 @@ class PlatformRegistrar:
 
 def worker(index: int) -> dict:
     start = time.time()
-    registrar = PlatformRegistrar(config["proxy"])
+    registrar = PlatformRegistrar()
     try:
         step(index, "任务启动")
         result = registrar.register(index)
@@ -459,6 +513,7 @@ def worker(index: int) -> dict:
         refresh_result = account_service.refresh_accounts([access_token])
         if refresh_result.get("errors"):
             step(index, f"账号已保存，刷新状态暂未成功，稍后可重试: {refresh_result['errors']}", "yellow")
+        record_openai_registration_success()
         with stats_lock:
             stats["done"] += 1
             stats["success"] += 1
@@ -470,7 +525,16 @@ def worker(index: int) -> dict:
         with stats_lock:
             stats["done"] += 1
             stats["fail"] += 1
-        log(f"任务{index} 注册失败，本次耗时{cost:.1f}s，原因: {e}", "red")
-        return {"ok": False, "index": index, "error": str(e)}
+        error_msg = str(e)
+        log(f"任务{index} 注册失败，本次耗时{cost:.1f}s，原因: {error_msg}", "red")
+        if "Cloudflare" in error_msg:
+            if not registrar.openai_proxy_used:
+                record_openai_cloudflare_failure()
+            step(index, error_msg+"，线程休息 5s", "yellow")
+            time.sleep(5)
+        if "OpenAI's services are not available in your country" in error_msg:
+            if not registrar.openai_proxy_used:
+                record_openai_cloudflare_failure()
+        return {"ok": False, "index": index, "error": error_msg}
     finally:
         registrar.close()

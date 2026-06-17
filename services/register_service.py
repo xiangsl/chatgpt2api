@@ -93,6 +93,7 @@ class RegisterService:
             openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": time.time()})
+            openai_register.reset_openai_proxy_state()
             self._save()
             self._runner = threading.Thread(target=self._run, daemon=True, name="openai-register")
             self._runner.start()
@@ -113,6 +114,7 @@ class RegisterService:
             self._config["stats"] = {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, **self._pool_metrics(), "updated_at": _now()}
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": 0.0})
+            openai_register.reset_openai_proxy_state()
             self._save()
             return self.get()
 

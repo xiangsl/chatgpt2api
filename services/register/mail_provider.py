@@ -104,11 +104,7 @@ def _normalize_string_list(value: Any) -> list[str]:
 
 
 def _create_session(conf: dict):
-    proxy = str(conf.get("proxy") or "").strip()
-    kwargs = {"impersonate": "chrome", "verify": False}
-    if proxy:
-        kwargs["proxy"] = proxy
-    return requests.Session(**kwargs)
+    return requests.Session(impersonate="chrome", verify=False)
 
 
 def _parse_received_at(value: Any) -> datetime | None:

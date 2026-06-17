@@ -347,7 +347,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const data = await updateSettingsConfig({
         ...config,
         refresh_account_interval_minute: Math.max(1, Number(config.refresh_account_interval_minute) || 1),
-        image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
+        image_retention_days: Math.max(0.01, Number(config.image_retention_days) || 30),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
         image_settle_enabled: Boolean(config.image_settle_enabled !== false),

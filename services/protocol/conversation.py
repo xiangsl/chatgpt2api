@@ -275,17 +275,13 @@ def format_image_result(
         if not b64_json:
             continue
         revised_prompt = str(item.get("revised_prompt") or prompt).strip() or prompt
+        image_url = save_image_bytes(base64.b64decode(b64_json), base_url)
+        entry: dict[str, Any] = {"revised_prompt": revised_prompt}
         if response_format == "b64_json":
-            data.append({
-                "b64_json": b64_json,
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
-                "revised_prompt": revised_prompt,
-            })
-        else:
-            data.append({
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
-                "revised_prompt": revised_prompt,
-            })
+            entry["b64_json"] = b64_json
+        if image_url:
+            entry["url"] = image_url
+        data.append(entry)
     result: dict[str, Any] = {"created": created or int(time.time()), "data": data}
     if message and not data:
         result["message"] = message

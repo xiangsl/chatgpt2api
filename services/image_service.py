@@ -356,7 +356,7 @@ def _auto_cleanup_worker(stop_event: threading.Event) -> None:
     if min_free_mb is None:
         min_free_mb = 500
 
-    while not stop_event.wait(1800):  # 每30分钟
+    while not stop_event.wait(600):  # 每10分钟
         try:
             config.cleanup_old_images()
             cleanup_image_thumbnails()

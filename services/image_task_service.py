@@ -103,7 +103,7 @@ class ImageTaskService:
         *,
         generation_handler: Callable[[dict[str, Any]], dict[str, Any]] = openai_v1_image_generations.handle,
         edit_handler: Callable[[dict[str, Any]], dict[str, Any]] = openai_v1_image_edit.handle,
-        retention_days_getter: Callable[[], int] | None = None,
+        retention_days_getter: Callable[[], float] | None = None,
     ):
         self.path = path
         self.generation_handler = generation_handler
@@ -420,9 +420,9 @@ class ImageTaskService:
 
     def _cleanup_locked(self) -> bool:
         try:
-            retention_days = max(1, int(self.retention_days_getter()))
+            retention_days = max(0.01, float(self.retention_days_getter()))
         except Exception:
-            retention_days = 30
+            retention_days = 30.0
         cutoff = time.time() - retention_days * 86400
         removed_keys = [
             key

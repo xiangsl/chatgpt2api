@@ -268,11 +268,15 @@ class ConfigStore:
             return 0
 
     @property
-    def image_retention_days(self) -> int:
+    def if_write_image(self) -> bool:
+        return _normalize_bool(self.data.get("if_write_image"), False)
+
+    @property
+    def image_retention_days(self) -> float:
         try:
-            return max(1, int(self.data.get("image_retention_days", 30)))
+            return max(0.01, float(self.data.get("image_retention_days", 30)))
         except (TypeError, ValueError):
-            return 30
+            return 30.0
 
     @property
     def image_poll_timeout_secs(self) -> int:
