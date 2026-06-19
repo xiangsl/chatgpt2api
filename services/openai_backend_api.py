@@ -109,12 +109,16 @@ _CONTENT_POLICY_KEYWORDS = (
 )
 
 
-def _is_content_policy_error(error_msg: str) -> bool:
+def is_content_policy_error(error_msg: str) -> bool:
     """检查错误消息是否为内容政策违规。"""
     if not error_msg:
         return False
     msg_lower = error_msg.lower()
     return any(keyword in msg_lower for keyword in _CONTENT_POLICY_KEYWORDS)
+
+
+def _is_content_policy_error(error_msg: str) -> bool:
+    return is_content_policy_error(error_msg)
 
 
 @dataclass

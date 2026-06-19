@@ -1,0 +1,257 @@
+# New-API Docker Compose Configuration
+# 
+# Quick Start:
+#   1. docker-compose up -d
+#   2. Access at http://localhost:3000
+#
+# Using MySQL instead of PostgreSQL:
+#   1. Comment out the postgres service and SQL_DSN line 15
+#   2. Uncomment the mysql service and SQL_DSN line 16
+#   3. Uncomment mysql in depends_on (line 28)
+#   4. Uncomment mysql_data in volumes section (line 64)
+#
+# ⚠️  IMPORTANT: Change all default passwords before deploying to production!
+
+version: '3.4' # For compatibility with older Docker versions
+
+services:
+  hidden-price:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/new-api:hidden-price-20260617
+    container_name: hidden-price
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "5002:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # - SQL_DSN=postgresql://root:123456@postgres:5432/new-api # ⚠️ IMPORTANT: Change the password in production!
+      - SQL_DSN=root:NewapiTian@2024@tcp(hidden-price-mysql:3306)/new_api  # Point to the mysql service, uncomment if using MySQL
+      - REDIS_CONN_STRING=redis://:NewapiTian@2024@hidden-price-redis:6379 # ⚠️ IMPORTANT: Change the password in production!
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
+      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      - NODE_NAME=hidden-price-node-1  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
+      - NODE_TYPE=master
+      - STREAMING_TIMEOUT=500  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
+      - SESSION_SECRET=hidden_price_1  # 多机部署时设置，必须修改这个随机字符串！！ （multi-node deployment, set this to a random string!!!!!!!）
+      - SESSION_SECRET=hidden_price_abc123456789xyz
+      - CRYPTO_SECRET=crypto_hidden_price_abc123456789
+      - SESSION_STORE=redis
+#      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
+#      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
+#      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
+#      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+    networks:
+      - hidden-price-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hidden-price1:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/new-api:hidden-price-20260617
+    container_name: hidden-price1
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "5001:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # - SQL_DSN=postgresql://root:123456@postgres:5432/new-api # ⚠️ IMPORTANT: Change the password in production!
+      - SQL_DSN=root:NewapiTian@2024@tcp(hidden-price-mysql:3306)/new_api  # Point to the mysql service, uncomment if using MySQL
+      - REDIS_CONN_STRING=redis://:NewapiTian@2024@hidden-price-redis:6379 # ⚠️ IMPORTANT: Change the password in production!
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
+      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      - NODE_NAME=hidden-price-node-2  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
+      - NODE_TYPE=slave  # 对应角色
+      - STREAMING_TIMEOUT=600  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
+      - SESSION_SECRET=hidden_price_2  # 多机部署时设置，必须修改这个随机字符串！！ （multi-node deployment, set this to a random string!!!!!!!）
+      - SESSION_SECRET=hidden_price_abc123456789xyz
+      - CRYPTO_SECRET=crypto_hidden_price_abc123456789
+      - SESSION_STORE=redis
+      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
+#      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
+#      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
+#      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+    networks:
+      - hidden-price-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hidden-price3:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/new-api:hidden-price-20260617
+    container_name: hidden-price3
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "5003:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # - SQL_DSN=postgresql://root:123456@postgres:5432/new-api # ⚠️ IMPORTANT: Change the password in production!
+      - SQL_DSN=root:NewapiTian@2024@tcp(hidden-price-mysql:3306)/new_api  # Point to the mysql service, uncomment if using MySQL
+      - REDIS_CONN_STRING=redis://:NewapiTian@2024@hidden-price-redis:6379 # ⚠️ IMPORTANT: Change the password in production!
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
+      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      - NODE_NAME=hidden-price-node-3  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
+      - NODE_TYPE=slave  # 对应角色
+      - STREAMING_TIMEOUT=600  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
+      - SESSION_SECRET=hidden_price_3  # 多机部署时设置，必须修改这个随机字符串！！ （multi-node deployment, set this to a random string!!!!!!!）
+      - SESSION_SECRET=hidden_price_abc123456789xyz
+      - CRYPTO_SECRET=crypto_hidden_price_abc123456789
+      - SESSION_STORE=redis
+      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
+#      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
+#      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
+#      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+    networks:
+      - hidden-price-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hidden-price4:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/new-api:hidden-price-20260617
+    container_name: hidden-price4
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "5004:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # - SQL_DSN=postgresql://root:123456@postgres:5432/new-api # ⚠️ IMPORTANT: Change the password in production!
+      - SQL_DSN=root:NewapiTian@2024@tcp(hidden-price-mysql:3306)/new_api  # Point to the mysql service, uncomment if using MySQL
+      - REDIS_CONN_STRING=redis://:NewapiTian@2024@hidden-price-redis:6379 # ⚠️ IMPORTANT: Change the password in production!
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
+      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      - NODE_NAME=hidden-price-node-4  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
+      - NODE_TYPE=slave  # 对应角色
+      - STREAMING_TIMEOUT=600  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
+      - SESSION_SECRET=hidden_price_4  # 多机部署时设置，必须修改这个随机字符串！！ （multi-node deployment, set this to a random string!!!!!!!）
+      - SESSION_SECRET=hidden_price_abc123456789xyz
+      - CRYPTO_SECRET=crypto_hidden_price_abc123456789
+      - SESSION_STORE=redis
+      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
+#      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
+#      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
+#      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+    networks:
+      - hidden-price-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hidden-price5:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/new-api:hidden-price-20260617
+    container_name: hidden-price5
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "5005:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # - SQL_DSN=postgresql://root:123456@postgres:5432/new-api # ⚠️ IMPORTANT: Change the password in production!
+      - SQL_DSN=root:NewapiTian@2024@tcp(hidden-price-mysql:3306)/new_api  # Point to the mysql service, uncomment if using MySQL
+      - REDIS_CONN_STRING=redis://:NewapiTian@2024@hidden-price-redis:6379 # ⚠️ IMPORTANT: Change the password in production!
+      - TZ=Asia/Shanghai
+      - ERROR_LOG_ENABLED=true # 是否启用错误日志记录 (Whether to enable error log recording)
+      - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
+      - NODE_NAME=hidden-price-node-5  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
+      - NODE_TYPE=slave  # 对应角色
+      - STREAMING_TIMEOUT=600  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
+      - SESSION_SECRET=hidden_price_5  # 多机部署时设置，必须修改这个随机字符串！！ （multi-node deployment, set this to a random string!!!!!!!）
+      - SESSION_SECRET=hidden_price_abc123456789xyz
+      - CRYPTO_SECRET=crypto_hidden_price_abc123456789
+      - SESSION_STORE=redis
+      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
+#      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
+#      - UMAMI_WEBSITE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx  # Umami 网站 ID (Umami Website ID)
+#      - UMAMI_SCRIPT_URL=https://analytics.umami.is/script.js  # Umami 脚本 URL，默认为官方地址 (Umami Script URL, defaults to official URL)
+    networks:
+      - hidden-price-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/redis:latest
+    container_name: hidden-price-redis
+    restart: always
+    command: ["redis-server", "--requirepass", "NewapiTian@2024"]  # ⚠️ IMPORTANT: Change this password in production!
+    networks:
+      - hidden-price-network
+    ports:
+      - "6379:6379"  # Uncomment if you need to access MySQL from outside Docker
+  
+  # postgres:
+  #   image: postgres:15
+  #   container_name: postgres
+  #   restart: always
+  #   environment:
+  #     POSTGRES_USER: root
+  #     POSTGRES_PASSWORD: 123456  # ⚠️ IMPORTANT: Change this password in production!
+  #     POSTGRES_DB: new-api
+  #   volumes:
+  #     - pg_data:/var/lib/postgresql/data
+  #   networks:
+  #     - hidden-price-network
+#    ports:
+#      - "5432:5432"  # Uncomment if you need to access PostgreSQL from outside Docker
+
+  mysql:
+   image: registry.cn-hangzhou.aliyuncs.com/fafucoder/mysql:8.0
+   container_name: hidden-price-mysql
+   restart: always
+   environment:
+     MYSQL_ROOT_PASSWORD: NewapiTian@2024  # ⚠️ IMPORTANT: Change this password in production!
+     MYSQL_DATABASE: new_api
+   volumes:
+     - mysql_data:/var/lib/mysql
+   networks:
+     - hidden-price-network
+   ports:
+     - "33060:3306"  # Uncomment if you need to access MySQL from outside Docker
+  
+  # Nginx 反向代理服务 用于做SSL  
+  nginx:  
+    image: registry.cn-hangzhou.aliyuncs.com/fafucoder/nginx:alpine
+    container_name: hidden-price-nginx  
+    restart: always  
+    ports:  
+      - '5000:80'  
+    volumes:  
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro  
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro  
+      - ./nginx/logs:/var/log/nginx  
+    networks:  
+      - hidden-price-network
+
+volumes:
+  # pg_data:
+  mysql_data:
+
+networks:
+  hidden-price-network:
+    driver: bridge

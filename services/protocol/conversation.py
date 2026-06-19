@@ -13,7 +13,12 @@ import tiktoken
 from services.account_service import account_service
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI
+from services.openai_backend_api import (
+    ImageContentPolicyError,
+    ImagePollTimeoutError,
+    OpenAIBackendAPI,
+    is_content_policy_error,
+)
 from utils.helper import (
     IMAGE_MODELS,
     extract_image_from_message_content,
@@ -1226,11 +1231,14 @@ def _generate_single_image(
     MAX_CONN_TIMEOUT_RETRIES = 3
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 4
+    # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
+    MAX_CONTENT_POLICY_RETRIES = 3
 
     text_reply_retry_count = 0
     tls_retry_count = 0
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
+    content_policy_retry_count = 0
     account_email = ""
 
     while True:
@@ -1248,6 +1256,7 @@ def _generate_single_image(
             raise ImageGenerationError(str(exc) or "image generation failed", account_email=account_email) from exc
 
         emitted_for_token = False
+        stream_had_activity = False
         returned_message = False
         returned_result = False
         account = account_service.get_account(token) or {}
@@ -1269,15 +1278,23 @@ def _generate_single_image(
                 if account_email and not output.account_email:
                     output.account_email = account_email
                 if output.kind == "message" and request.message_as_error:
+                    error_text = output.text or "Image generation was rejected by upstream policy."
+                    if is_content_policy_error(error_text):
+                        policy_exc = ImageContentPolicyError(error_text)
+                        setattr(policy_exc, "conversation_id", output.conversation_id)
+                        raise policy_exc
                     raise ImageGenerationError(
-                        output.text or "Image generation was rejected by upstream policy.",
+                        error_text,
                         status_code=400,
                         error_type="invalid_request_error",
                         code="content_policy_violation",
                         account_email=account_email,
                         conversation_id=output.conversation_id,
                     )
-                emitted_for_token = True
+                stream_had_activity = True
+                # progress 事件不算「已向客户端交付」，不应阻止换账号重试
+                if output.kind in ("message", "result"):
+                    emitted_for_token = True
                 returned_message = output.kind == "message"
                 returned_result = returned_result or output.kind == "result"
                 outputs.append(output)
@@ -1286,7 +1303,7 @@ def _generate_single_image(
                 return outputs
             if not returned_result:
                 account_service.mark_image_result(token, False)
-                if emitted_for_token:
+                if stream_had_activity:
                     conv_id = outputs[-1].conversation_id if outputs else ""
                     raise ImageGenerationError(
                         "upstream completed without generating images",
@@ -1327,6 +1344,28 @@ def _generate_single_image(
             raise
         except ImageContentPolicyError as exc:
             account_service.mark_image_result(token, False)
+            if account_email:
+                setattr(exc, "account_email", account_email)
+            # 内容政策违规：换账号重试（不同归属地政策可能不同）
+            if not emitted_for_token:
+                content_policy_retry_count += 1
+                if content_policy_retry_count <= MAX_CONTENT_POLICY_RETRIES:
+                    logger.warning({
+                        "event": "image_content_policy_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": content_policy_retry_count,
+                        "index": index,
+                        "error": str(exc)[:200],
+                    })
+                    continue
+                logger.warning({
+                    "event": "image_content_policy_exhausted_retries",
+                    "request_token": token,
+                    "account_email": account_email,
+                    "retry_count": content_policy_retry_count,
+                    "index": index,
+                })
             logger.warning({
                 "event": "image_stream_content_policy_error",
                 "request_token": token,

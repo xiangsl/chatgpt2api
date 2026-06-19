@@ -132,8 +132,21 @@ def write_stats(stats_path: Path, stats: GlobalStats, label: str = "periodic"):
         f.write(text + "\n")
 
 
+_error_log_lock = threading.Lock()
+
+
+def write_error_log(error_path: Path, thread_id: int, response_time: float, error_msg: str, prompt: str):
+    """将失败日志写入 error.txt，每行一条，行首为耗时。"""
+    safe_msg = error_msg.replace("\n", " ").replace("\r", " ")
+    safe_prompt = prompt.replace("\n", " ").replace("\r", " ")
+    line = f"{response_time:.2f}s | 线程-{thread_id:02d} | {safe_msg} | 提示词: {safe_prompt}"
+    with _error_log_lock:
+        with open(error_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+
 def worker(thread_id: int, config: dict, stop_event: threading.Event,
-           stats_path: Path, global_stats: GlobalStats):
+           stats_path: Path, error_path: Path, global_stats: GlobalStats):
     api_cfg = config["api"]
     rt_cfg = config["runtime"]
     prompts: list[str] = config["prompts"]
@@ -156,6 +169,7 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
             hit_milestone = global_stats.record_call(True, response_time)
         else:
             logger.warning("线程-%02d | 调用失败 (%.2f 秒): %s", thread_id, response_time, error_reason or "未知错误")
+            write_error_log(error_path, thread_id, response_time, error_reason or "未知错误", prompt)
             hit_milestone = global_stats.record_call(False, response_time)
 
         if hit_milestone:
@@ -179,6 +193,7 @@ def main():
     output_dir = Path(out_cfg["base_output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     stats_path = output_dir / out_cfg["stats_filename"]
+    error_path = output_dir / "error.txt"
     global_stats = GlobalStats()
 
     logger.info("正在启动大模型性能测试")
@@ -195,7 +210,7 @@ def main():
     for i in range(1, thread_count + 1):
         t = threading.Thread(
             target=worker,
-            args=(i, config, stop_event, stats_path, global_stats),
+            args=(i, config, stop_event, stats_path, error_path, global_stats),
             name=f"Worker-{i:02d}",
             daemon=True,
         )

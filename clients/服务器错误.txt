@@ -1,0 +1,171 @@
+第一台服务器：http://154.44.9.248:3001/
+
+01:08:07任务568 注册失败，本次耗时4.8s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+01:08:07[任务568] 开始等待注册验证码
+01:08:07[任务568] 发送验证码完成
+01:08:07[任务568] 开始发送验证码
+01:08:07[任务568] 提交注册密码完成
+01:08:06[任务568] 开始提交注册密码
+01:08:06[任务568] platform authorize 完成
+01:08:04任务567 注册失败，本次耗时1.3s，原因: Failed to perform, curl: (6) Could not resolve host: sentinel.openai.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+01:08:04[任务567] 开始提交注册密码
+01:08:04[任务567] platform authorize 完成
+01:08:03[任务567] 开始 platform authorize
+01:08:03[任务567] OpenAI 注册走本地网络
+01:08:03[任务567] 邮箱创建完成[]: gardas1cd273@gkl.autofixmax.com
+01:08:03[任务568] 开始 platform authorize
+01:08:03[任务568] OpenAI 注册走本地网络
+01:08:03[任务568] 邮箱创建完成[]: phillie1cd273@ja.blaizesmp.net
+01:08:03任务569 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+
+第二台服务器：http://38.58.58.246:3001/
+
+00:23:52检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:47检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:42检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:37检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:32检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:27检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:22检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:17检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:12检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+00:23:07检查号池：当前正常账号=72，目标账号=70，当前剩余额度=1758，跳过注册
+
+第三台服务器：http://38.58.59.196:3001/
+
+23:45:32kathryn1cbf13@js.chillart.org 注册成功，本次耗时8.7s，全局平均每个号注册耗时27.1s
+23:45:32[任务297] 账号已保存，刷新状态暂未成功，稍后可重试: [{'token': 'token:1c0a4f888b', 'error': 'Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.'}]
+23:45:32[任务297] token 换取完成
+23:45:31[任务297] 开始换 token
+23:45:31[任务297] 创建账号资料完成
+23:45:29[任务297] 开始创建账号资料
+23:45:29[任务297] 验证码校验完成
+23:45:28[任务297] 开始校验验证码 955830
+23:45:28[任务297] 收到注册验证码: 955830
+23:45:27izabel1cbf0f@k1.dogmrp.com 注册成功，本次耗时8.1s，全局平均每个号注册耗时27.2s
+23:45:27[任务295] 账号已保存，刷新状态暂未成功，稍后可重试: [{'token': 'token:e5240e73cc', 'error': 'Failed to perform, curl: (6) Could not resolve host: chatgpt.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.'}]
+23:45:27[任务295] token 换取完成
+23:45:27任务448 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) Could not resolve host: api.tempmail.lol. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+
+第四台服务器：http://45.207.200.27:3001/
+
+23:03:46[任务628] 被 Cloudflare 拦截，请更换 IP 重试，线程休息 5s
+23:03:46任务628 注册失败，本次耗时7.7s，原因: 被 Cloudflare 拦截，请更换 IP 重试
+23:03:46任务627 注册失败，本次耗时9.4s，原因: Failed to perform, curl: (6) Could not resolve host: api.tempmail.lol. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+23:03:46[任务627] 开始等待注册验证码
+23:03:46[任务627] 发送验证码完成
+23:03:46任务632 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) Could not resolve host: api.tempmail.lol. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+23:03:46检查号池：当前正常账号=53，目标账号=70，当前剩余额度=973，继续注册
+23:03:46[任务632] 开始创建邮箱
+23:03:46[任务632] 任务启动
+23:03:46检查号池：当前正常账号=53，目标账号=70，当前剩余额度=973，继续注册
+23:03:46任务631 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) Could not resolve host: api.tempmail.lol. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+23:03:46[任务631] 开始创建邮箱
+23:03:46[任务631] 任务启动
+23:03:46检查号池：当前正常账号=53，目标账号=70，当前剩余额度=973，继续注册
+23:03:46检查号池：当前正常账号=53，目标账号=70，当前剩余额度=973，继续注册
+23:03:46任务630 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) Could not resolve host: api.tempmail.lol. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+
+第五台服务器：http://62.146.173.209:3001/register/
+
+00:49:46meade1cce21@kr.basketrise.com 注册成功，本次耗时8.8s，全局平均每个号注册耗时32.7s
+00:49:46[任务257] 账号已保存，刷新状态暂未成功，稍后可重试: [{'token': 'token:600714ebe3', 'error': 'Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.'}]
+00:49:45[任务257] token 换取完成
+00:49:45[任务257] 开始换 token
+00:49:45[任务257] 创建账号资料完成
+00:49:43[任务257] 开始创建账号资料
+00:49:43[任务257] 验证码校验完成
+00:49:42[任务257] 开始校验验证码 627755
+00:49:42[任务257] 收到注册验证码: 627755
+00:49:40[任务257] 开始等待注册验证码
+00:49:40[任务257] 发送验证码完成
+00:49:39[任务257] 开始发送验证码
+00:49:39[任务257] 提交注册密码完成
+00:49:39任务261 注册失败，本次耗时1.3s，原因: Failed to perform, curl: (6) Could not resolve host: sentinel.openai.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:49:39[任务261] 开始提交注册密码
+00:49:39[任务261] platform authorize 完成
+00:49:38[任务261] 开始 platform authorize
+00:49:38[任务261] OpenAI 注册走本地网络
+00:49:38[任务261] 邮箱创建完成[]: carson1cce22@gij.for4u.net
+00:49:38任务262 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:49:38[任务262] 开始创建邮箱
+00:49:38[任务262] 任务启动
+00:49:38检查号池：当前正常账号=49，目标账号=70，当前剩余额度=1222，继续注册
+00:49:38[任务261] 开始创建邮箱
+00:49:38[任务261] 任务启动
+00:49:38[任务257] 开始提交注册密码
+00:49:38检查号池：当前正常账号=49，目标账号=70，当前剩余额度=1222，继续注册
+00:49:38检查号池：当前正常账号=49，目标账号=70，当前剩余额度=1222，继续注册
+00:49:38[任务257] platform authorize 完成
+00:49:38任务259 注册失败，本次耗时1.2s，原因: Failed to perform, curl: (6) Could not resolve host: sentinel.openai.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:49:38任务260 注册失败，本次耗时0.0s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:49:38[任务260] 开始创建邮箱
+00:49:38[任务259] 开始提交注册密码
+00:49:38检查号池：当前正常账号=49，目标账号=70，当前剩余额度=1222，继续注册
+00:49:38[任务260] 任务启动
+00:49:38[任务259] platform authorize 完成
+00:49:38检查号池：当前正常账号=49，目标账号=70，当前剩余额度=1222，继续注册
+00:49:38任务258 注册失败，本次耗时1.1s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+
+第六台服务器：http://85.239.238.222:3001/
+
+
+00:54:30mufi1ccf3b@3u.autofixmax.com 注册成功，本次耗时9.5s，全局平均每个号注册耗时34.3s
+00:54:30[任务318] 账号已保存，刷新状态暂未成功，稍后可重试: [{'token': 'token:992085b540', 'error': 'Failed to perform, curl: (6) Could not resolve host: chatgpt.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.'}]
+00:54:29[任务318] token 换取完成
+00:54:28[任务318] 开始换 token
+00:54:28[任务318] 创建账号资料完成
+00:54:25[任务318] 开始创建账号资料
+00:54:25[任务318] 验证码校验完成
+00:54:25[任务318] 开始校验验证码 361695
+00:54:25[任务318] 收到注册验证码: 361695
+00:54:24任务320 注册失败，本次耗时3.4s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:54:24[任务320] 开始等待注册验证码
+00:54:24[任务320] 发送验证码完成
+00:54:23[任务320] 开始发送验证码
+00:54:23[任务320] 提交注册密码完成
+00:54:22[任务318] 开始等待注册验证码
+00:54:22[任务318] 发送验证码完成
+00:54:22[任务320] 开始提交注册密码
+00:54:22[任务320] platform authorize 完成
+00:54:21[任务318] 开始发送验证码
+00:54:21[任务318] 提交注册密码完成
+00:54:21[任务320] 开始 platform authorize
+00:54:21[任务320] OpenAI 注册走本地网络
+00:54:21[任务320] 邮箱创建完成[]: alano1ccf3d@vw.dogmrp.com
+00:54:21任务317 注册失败，本次耗时2.6s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:54:21[任务317] 开始等待注册验证码
+00:54:21[任务317] 发送验证码完成
+00:54:21检查号池：当前正常账号=44，目标账号=70，当前剩余额度=1086，继续注册
+00:54:21[任务320] 开始创建邮箱
+00:54:21[任务320] 任务启动
+00:54:21检查号池：当前正常账号=44，目标账号=70，当前剩余额度=1086，继续注册
+00:54:21任务319 注册失败，本次耗时1.2s，原因: Failed to perform, curl: (6) Could not resolve host: sentinel.openai.com. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+00:54:21[任务319] 开始提交注册密码
+00:54:21[任务319] platform authorize 完成
+00:54:20[任务317] 开始发送验证码
+00:54:20[任务317] 提交注册密码完成
+00:54:20[任务318] 开始提交注册密码
+00:54:20[任务318] platform authorize 完成
+00:54:20[任务319] 开始 platform authorize
+00:54:20[任务319] OpenAI 注册走本地网络
+00:54:20[任务319] 邮箱创建完成[]: alfi1ccf3c@07.basketrise.com
+00:54:19[任务319] 开始创建邮箱
+00:54:19[任务319] 任务启动
+00:54:19检查号池：当前正常账号=44，目标账号=70，当前剩余额度=1086，继续注册
+00:54:19检查号池：当前正常账号=44，目标账号=70，当前剩余额度=1086，继续注册
+00:54:19任务313 注册失败，本次耗时2.9s，原因: Failed to perform, curl: (6) getaddrinfo() thread failed to start. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+
+
+第七台服务器：http://85.239.237.206:3001/
+
+00:10:39检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册
+00:10:34检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册
+00:10:29检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册
+00:10:24检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册
+00:10:19检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册
+00:10:14检查号池：当前正常账号=71，目标账号=70，当前剩余额度=1666，跳过注册

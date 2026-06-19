@@ -82,7 +82,7 @@ export function TopNav() {
             </SheetTrigger>
             <SheetContent side="left">
               <SheetHeader>
-                <SheetTitle>先知画图-0.1.0</SheetTitle>
+                <SheetTitle>先知画图-0.1.1</SheetTitle>
                 <span className="text-xs text-stone-500 dark:text-stone-400">{roleLabel} · {displayName}</span>
               </SheetHeader>
               <nav className="mt-8 flex flex-col gap-1">
@@ -116,7 +116,7 @@ export function TopNav() {
             href="/image"
             className="shrink-0 py-1 text-[15px] font-bold tracking-tight text-stone-950 transition hover:text-stone-700 dark:text-stone-50 dark:hover:text-white"
           >
-            先知画图-0.1.0
+            先知画图-0.1.1
           </Link>
           <HeaderActions className="ml-auto sm:hidden" showGithubText={false} />
         </div>

@@ -8,25 +8,19 @@
 
 
 
+import base64
 import json
-
-import os
-
-import random
-
-import threading
-
-import time
-
 import logging
-
+import os
+import random
+import threading
+import time
 from datetime import datetime
-
+from io import BytesIO
 from pathlib import Path
 
-
-
 import requests
+from PIL import Image
 
 
 
@@ -186,16 +180,30 @@ class GlobalStats:
 
 
 
+def check_image_size(b64_json: str, expected_size: str) -> tuple[bool, str | None]:
+    """校验生成图片的实际尺寸是否与期望一致。"""
+    try:
+        expected_w, expected_h = (int(part) for part in expected_size.lower().split("x", 1))
+    except ValueError:
+        return False, f"期望尺寸格式无效: {expected_size}"
+
+    try:
+        img_bytes = base64.b64decode(b64_json)
+        with Image.open(BytesIO(img_bytes)) as img:
+            actual_w, actual_h = img.size
+    except Exception as e:
+        return False, f"图片尺寸检测失败: {e}"
+
+    if actual_w == expected_w and actual_h == expected_h:
+        return True, None
+    return False, f"图片尺寸不符: 期望 {expected_w}x{expected_h}, 实际 {actual_w}x{actual_h}"
+
+
 def generate_image(base_url: str, api_key: str, model: str, prompt: str,
-
-                   size: str, quality: str) -> tuple[bool, float, str | None]:
-
+                   size: str, quality: str) -> tuple[bool, float, str | None, str | None]:
     """
-
     调用 OpenAI 兼容的图像生成接口。
-
-    返回 (是否成功, 响应耗时秒数, 错误信息)。
-
+    返回 (是否成功, 响应耗时秒数, 错误信息, b64_json)。
     """
 
     start = time.time()
@@ -234,23 +242,38 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
 
         data = resp.json()
 
-        if data["data"][0].get("b64_json"):
-
-            return True, time.time() - start, None
+        b64_json = data["data"][0].get("b64_json")
+        if b64_json:
+            size_ok, size_error = check_image_size(b64_json, size)
+            if not size_ok:
+                logger.error(size_error)
+                return False, time.time() - start, size_error, None
+            return True, time.time() - start, None, b64_json
 
         error_msg = "响应解析错误: 缺少 b64_json 字段"
 
         logger.error(error_msg)
 
-        return False, time.time() - start, error_msg
+        return False, time.time() - start, error_msg, None
 
     except requests.exceptions.HTTPError as e:
-
-        error_msg = f"HTTP 错误: {e} – {resp.text[:300] if resp else ''}"
+        resp = e.response
+        detail = ""
+        if resp is not None:
+            try:
+                body = resp.json()
+                err = body.get("error") if isinstance(body, dict) else None
+                if isinstance(err, dict):
+                    detail = str(err.get("message") or err.get("code") or "")
+                elif isinstance(body, dict) and body.get("error"):
+                    detail = str(body["error"])
+            except ValueError:
+                detail = (resp.text or "").strip()[:300]
+        error_msg = f"HTTP 错误: {e}" + (f" – {detail}" if detail else "")
 
         logger.error(error_msg)
 
-        return False, time.time() - start, error_msg
+        return False, time.time() - start, error_msg, None
 
     except requests.exceptions.RequestException as e:
 
@@ -258,7 +281,7 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
 
         logger.error(error_msg)
 
-        return False, time.time() - start, error_msg
+        return False, time.time() - start, error_msg, None
 
     except (KeyError, IndexError, ValueError) as e:
 
@@ -266,7 +289,7 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
 
         logger.error(error_msg)
 
-        return False, time.time() - start, error_msg
+        return False, time.time() - start, error_msg, None
 
 
 
@@ -378,7 +401,7 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
 
 
 
-        success, response_time, error_msg = generate_image(
+        success, response_time, error_msg, _ = generate_image(
 
             base_url=api_cfg["base_url"],
 
@@ -480,7 +503,7 @@ def main():
 
     logger.info("  已加载提示词  : %d 条", len(config["prompts"]))
 
-    logger.info("  输出目录      : %s", output_dir)
+    logger.info("  统计/日志目录 : %s", output_dir)
 
 
 
