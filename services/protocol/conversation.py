@@ -1242,6 +1242,15 @@ def _generate_single_image(
     account_email = ""
 
     while True:
+        token = ""
+        slot_acquired = False
+
+        def finish_slot(success: bool) -> None:
+            nonlocal slot_acquired
+            if slot_acquired and token:
+                account_service.mark_image_result(token, success)
+                slot_acquired = False
+
         try:
             if request.progress_callback:
                 request.progress_callback("getting_account")
@@ -1252,6 +1261,7 @@ def _generate_single_image(
                 source_type="codex" if codex_model else None,
                 plan_types=("plus", "team", "pro") if codex_model and not plan_type else None,
             )
+            slot_acquired = True
         except RuntimeError as exc:
             raise ImageGenerationError(str(exc) or "image generation failed", account_email=account_email) from exc
 
@@ -1299,10 +1309,10 @@ def _generate_single_image(
                 returned_result = returned_result or output.kind == "result"
                 outputs.append(output)
             if returned_message:
-                account_service.mark_image_result(token, False)
+                finish_slot(False)
                 return outputs
             if not returned_result:
-                account_service.mark_image_result(token, False)
+                finish_slot(False)
                 if stream_had_activity:
                     conv_id = outputs[-1].conversation_id if outputs else ""
                     raise ImageGenerationError(
@@ -1314,10 +1324,10 @@ def _generate_single_image(
                         conversation_id=conv_id,
                     )
                 return outputs
-            account_service.mark_image_result(token, True)
+            finish_slot(True)
             return outputs
         except ImagePollTimeoutError as exc:
-            account_service.mark_image_result(token, False)
+            finish_slot(False)
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 轮询超时：换账号重试
@@ -1343,7 +1353,7 @@ def _generate_single_image(
                 raise
             raise
         except ImageContentPolicyError as exc:
-            account_service.mark_image_result(token, False)
+            finish_slot(False)
             if account_email:
                 setattr(exc, "account_email", account_email)
             # 内容政策违规：换账号重试（不同归属地政策可能不同）
@@ -1382,7 +1392,7 @@ def _generate_single_image(
                 conversation_id=getattr(exc, "conversation_id", ""),
             ) from exc
         except ImageGenerationError as exc:
-            account_service.mark_image_result(token, False)
+            finish_slot(False)
             if account_email and not getattr(exc, "account_email", ""):
                 exc.account_email = account_email
             error_text = str(exc)
@@ -1424,7 +1434,7 @@ def _generate_single_image(
             })
             raise
         except Exception as exc:
-            account_service.mark_image_result(token, False)
+            finish_slot(False)
             last_error = str(exc)
             logger.warning({
                 "event": "image_stream_fail",
@@ -1471,6 +1481,16 @@ def _generate_single_image(
                     time.sleep(wait_secs)
                     continue
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
+        finally:
+            if slot_acquired and token:
+                logger.warning({
+                    "event": "image_slot_finally_release",
+                    "request_token": token[:12] + "..." if len(token) > 12 else token,
+                    "account_email": account_email,
+                    "index": index,
+                })
+                account_service.release_image_slot(token)
+                slot_acquired = False
 
 
 def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[ImageOutput]:

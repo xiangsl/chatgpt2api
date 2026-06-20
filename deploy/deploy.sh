@@ -11,6 +11,9 @@ cd "$SCRIPT_DIR"
 TAR_FILE="chatgpt2api.tar"
 UPDATE_SCRIPT="update.sh"
 HOSTS_FILE="hosts.txt"
+CONFIG_FILE="config.json"
+COMPOSE_FILE="docker-compose.yml"
+COMPOSE_WARP_FILE="docker-compose.warp.yml"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -25,10 +28,13 @@ usage() {
 用法: ./deploy.sh
 
 控制机 deploy 目录下需包含:
-  deploy.sh       本脚本
-  update.sh       目标机器升级脚本
-  chatgpt2api.tar Docker 镜像包
-  hosts.txt       主机列表
+  deploy.sh              本脚本
+  update.sh              目标机器升级脚本
+  chatgpt2api.tar        Docker 镜像包
+  config.json            服务配置
+  docker-compose.yml     Compose 配置
+  docker-compose.warp.yml  Compose 配置（含 WARP）
+  hosts.txt              主机列表
 
 hosts.txt 格式（一行一台，字段以 | 分隔）:
   主机|用户名|密码|目标文件夹
@@ -60,7 +66,7 @@ check_deps() {
 
 check_files() {
     local missing=()
-    for f in "$TAR_FILE" "$UPDATE_SCRIPT" "$HOSTS_FILE"; do
+    for f in "$TAR_FILE" "$UPDATE_SCRIPT" "$HOSTS_FILE" "$CONFIG_FILE" "$COMPOSE_FILE" "$COMPOSE_WARP_FILE"; do
         [[ -f "$f" ]] || missing+=("$f")
     done
     if ((${#missing[@]} > 0)); then
@@ -119,9 +125,11 @@ deploy_one() {
     fi
 
     tar_size="$(du -h "$TAR_FILE" | cut -f1)"
-    log_info "${host}: 上传 ${UPDATE_SCRIPT} 和 ${TAR_FILE}（约 ${tar_size}），大文件可能需几分钟 ..."
+    log_info "${host}: 上传 ${UPDATE_SCRIPT}、${TAR_FILE}、${CONFIG_FILE}、${COMPOSE_FILE}、${COMPOSE_WARP_FILE}（约 ${tar_size}），大文件可能需几分钟 ..."
     start=$(date +%s)
-    if ! sshpass -p "$password" scp "${conn_opts[@]}" "$UPDATE_SCRIPT" "$TAR_FILE" "${remote}:${target_dir}/" </dev/null; then
+    if ! sshpass -p "$password" scp "${conn_opts[@]}" \
+        "$UPDATE_SCRIPT" "$TAR_FILE" "$CONFIG_FILE" "$COMPOSE_FILE" "$COMPOSE_WARP_FILE" \
+        "${remote}:${target_dir}/" </dev/null; then
         log_error "${host}: 文件复制失败"
         return 1
     fi

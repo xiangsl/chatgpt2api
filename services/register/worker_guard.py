@@ -67,12 +67,22 @@ def install_worker_guards() -> None:
 
 
 def guarded_worker(index: int) -> dict:
-    from services.register import openai_register
+    from services.register import openai_register, post_register_warmup
 
     install_worker_guards()
     activate_worker_deadline()
     try:
-        return openai_register.worker(index)
+        result = openai_register.worker(index)
+        if result.get("ok"):
+            payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+            access_token = str(payload.get("access_token") or "").strip()
+            if access_token:
+                post_register_warmup.run_post_register_warmup(
+                    access_token,
+                    index=index,
+                    step_fn=openai_register.step,
+                )
+        return result
     except WorkerDeadlineExceeded as error:
         return {"ok": False, "index": index, "error": str(error)}
     finally:

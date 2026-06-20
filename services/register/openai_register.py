@@ -19,6 +19,7 @@ from curl_cffi import requests
 from services.account_service import account_service
 from services.proxy_service import ClearanceBundle, proxy_settings
 from services.register import mail_provider
+from services.register.account_fp import build_register_account_extras, finalize_registered_account
 
 base_dir = Path(__file__).resolve().parent
 config = {
@@ -426,6 +427,17 @@ class PlatformRegistrar:
         self.code_verifier = ""
         self.platform_auth_code = ""
         self.openai_proxy_used = ""
+        self.clearance_used = False
+
+    def registration_mode_label(self) -> str:
+        parts: list[str] = []
+        if self.openai_proxy_used:
+            parts.append("代理")
+        else:
+            parts.append("本地网络")
+        if self.clearance_used:
+            parts.append("FlareSolverr")
+        return "+".join(parts)
 
     def _open_openai_session(self, proxy: str = "") -> None:
         if self.session is not None:
@@ -470,6 +482,7 @@ class PlatformRegistrar:
         if bundle is not None:
             _apply_clearance_to_session(self.session, bundle)
             self.clearance_user_agent = bundle.user_agent or self.clearance_user_agent
+            self.clearance_used = True
             step(index, "Cloudflare clearance 刷新完成，重试当前请求", "yellow")
         else:
             self.clearance_failure_reason = "clearance 刷新未返回可用 Cookie，请检查 FlareSolverr URL、代理和出口 IP"
@@ -656,6 +669,7 @@ class PlatformRegistrar:
             "id_token": str(tokens.get("id_token") or "").strip(),
             "source_type": "web",
             "created_at": datetime.now(timezone.utc).isoformat(),
+            **build_register_account_extras(device_id=self.device_id, user_agent=user_agent, sec_ch_ua=sec_ch_ua),
         }
 
 
@@ -666,17 +680,15 @@ def worker(index: int) -> dict:
         step(index, "任务启动")
         result = registrar.register(index)
         cost = time.time() - start
-        access_token = str(result["access_token"])
         account_service.add_account_items([result])
-        refresh_result = account_service.refresh_accounts([access_token])
-        if refresh_result.get("errors"):
-            step(index, f"账号已保存，刷新状态暂未成功，稍后可重试: {refresh_result['errors']}", "yellow")
+        finalize_registered_account(index, result, step=step)
         record_openai_registration_success()
         with stats_lock:
             stats["done"] += 1
             stats["success"] += 1
             avg = (time.time() - stats["start_time"]) / stats["success"]
-        log(f'{result["email"]} 注册成功，本次耗时{cost:.1f}s，全局平均每个号注册耗时{avg:.1f}s', "green")
+        mode = registrar.registration_mode_label()
+        log(f'{result["email"]} 注册成功[{mode}]，本次耗时{cost:.1f}s，全局平均每个号注册耗时{avg:.1f}s', "green")
         return {"ok": True, "index": index, "result": result}
     except Exception as e:
         cost = time.time() - start

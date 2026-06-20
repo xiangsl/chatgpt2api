@@ -22,6 +22,7 @@ from PIL import Image
 from services.account_service import account_service
 from services.config import config
 from services.proxy_service import proxy_settings
+from services.register.account_fp import REGISTER_BACKEND_FP_DEFAULTS
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
@@ -152,6 +153,26 @@ class OpenAIBackendAPI:
     - 协议兼容转换放在 `services.protocol`
     """
 
+    _LEGACY_FP_DEFAULTS: Dict[str, str] = {
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0"
+        ),
+        "impersonate": "chrome110",
+        "sec-ch-ua": '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7",
+        "sec-ch-ua-arch": '"x86"',
+        "sec-ch-ua-bitness": '"64"',
+        "sec-ch-ua-full-version": '"143.0.3650.96"',
+        "sec-ch-ua-full-version-list": (
+            '"Microsoft Edge";v="143.0.3650.96", "Chromium";v="143.0.7499.147", "Not A(Brand";v="24.0.0.0"'
+        ),
+        "sec-ch-ua-platform-version": '"19.0.0"',
+        "oai-language": "zh-CN",
+    }
+
     def __init__(self, access_token: str = "") -> None:
         """初始化后端客户端。
 
@@ -176,32 +197,7 @@ class OpenAIBackendAPI:
             impersonate=self.fp["impersonate"],
             verify=True,
         ))
-        self.session.headers.update({
-            "User-Agent": self.user_agent,
-            "Origin": self.base_url,
-            "Referer": self.base_url + "/",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Sec-Ch-Ua": self.fp["sec-ch-ua"],
-            "Sec-Ch-Ua-Arch": '"x86"',
-            "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Full-Version": '"143.0.3650.96"',
-            "Sec-Ch-Ua-Full-Version-List": '"Microsoft Edge";v="143.0.3650.96", "Chromium";v="143.0.7499.147", "Not A(Brand";v="24.0.0.0"',
-            "Sec-Ch-Ua-Mobile": self.fp["sec-ch-ua-mobile"],
-            "Sec-Ch-Ua-Model": '""',
-            "Sec-Ch-Ua-Platform": self.fp["sec-ch-ua-platform"],
-            "Sec-Ch-Ua-Platform-Version": '"19.0.0"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "OAI-Device-Id": self.device_id,
-            "OAI-Session-Id": self.session_id,
-            "OAI-Language": "zh-CN",
-            "OAI-Client-Version": self.client_version,
-            "OAI-Client-Build-Number": self.client_build_number,
-        })
+        self.session.headers.update(self._build_session_headers())
         if self.access_token:
             self.session.headers["Authorization"] = f"Bearer {self.access_token}"
 
@@ -217,22 +213,54 @@ class OpenAIBackendAPI:
                 "sec-ch-ua",
                 "sec-ch-ua-mobile",
                 "sec-ch-ua-platform",
+                "accept-language",
+                "sec-ch-ua-arch",
+                "sec-ch-ua-bitness",
+                "sec-ch-ua-full-version",
+                "sec-ch-ua-full-version-list",
+                "sec-ch-ua-platform-version",
+                "oai-language",
         ):
             value = str(account.get(key) or "").strip()
             if value:
                 fp[key] = value
-        fp.setdefault(
-            "user-agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-        )
-        fp.setdefault("impersonate", "chrome110")
+        if str(fp.get("impersonate") or "").strip().lower() == "chrome":
+            for key, value in REGISTER_BACKEND_FP_DEFAULTS.items():
+                fp.setdefault(key, value)
+        for key, value in self._LEGACY_FP_DEFAULTS.items():
+            fp.setdefault(key, value)
         fp.setdefault("oai-device-id", new_uuid())
         fp.setdefault("oai-session-id", new_uuid())
-        fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"')
-        fp.setdefault("sec-ch-ua-mobile", "?0")
-        fp.setdefault("sec-ch-ua-platform", '"Windows"')
         return fp
+
+    def _build_session_headers(self) -> Dict[str, str]:
+        fp = self.fp
+        return {
+            "User-Agent": fp["user-agent"],
+            "Origin": self.base_url,
+            "Referer": self.base_url + "/",
+            "Accept-Language": fp["accept-language"],
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Priority": "u=1, i",
+            "Sec-Ch-Ua": fp["sec-ch-ua"],
+            "Sec-Ch-Ua-Arch": fp["sec-ch-ua-arch"],
+            "Sec-Ch-Ua-Bitness": fp["sec-ch-ua-bitness"],
+            "Sec-Ch-Ua-Full-Version": fp["sec-ch-ua-full-version"],
+            "Sec-Ch-Ua-Full-Version-List": fp["sec-ch-ua-full-version-list"],
+            "Sec-Ch-Ua-Mobile": fp["sec-ch-ua-mobile"],
+            "Sec-Ch-Ua-Model": '""',
+            "Sec-Ch-Ua-Platform": fp["sec-ch-ua-platform"],
+            "Sec-Ch-Ua-Platform-Version": fp["sec-ch-ua-platform-version"],
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "OAI-Device-Id": self.device_id,
+            "OAI-Session-Id": self.session_id,
+            "OAI-Language": fp["oai-language"],
+            "OAI-Client-Version": self.client_version,
+            "OAI-Client-Build-Number": self.client_build_number,
+        }
 
     def _headers(self, path: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """构造请求头，并补上 web 端要求的 target path/route。"""
@@ -351,7 +379,7 @@ class OpenAIBackendAPI:
         return {
             "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Language": self.fp["accept-language"],
             "Sec-Ch-Ua": self.session.headers["Sec-Ch-Ua"],
             "Sec-Ch-Ua-Mobile": self.session.headers["Sec-Ch-Ua-Mobile"],
             "Sec-Ch-Ua-Platform": self.session.headers["Sec-Ch-Ua-Platform"],

@@ -435,6 +435,14 @@ class ConfigStore:
             return 3
 
     @property
+    def image_inflight_timeout_secs(self) -> int:
+        """图片在途槽位超时秒数。超过该时间未释放的占槽会被自动回收。"""
+        try:
+            return max(60, int(self.data.get("image_inflight_timeout_secs", 600)))
+        except (TypeError, ValueError):
+            return 600
+
+    @property
     def image_parallel_generation(self) -> bool:
         value = self.data.get("image_parallel_generation", True)
         if isinstance(value, str):
@@ -559,6 +567,7 @@ class ConfigStore:
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_inflight_timeout_secs"] = self.image_inflight_timeout_secs
         data["image_parallel_generation"] = self.image_parallel_generation
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts

@@ -25,10 +25,10 @@ docker load -i "$TAR_FILE"
 
 echo "[INFO] 在 ${TARGET_DIR} 重启服务..."
 cd "$TARGET_DIR"
-docker compose up -d --force-recreate
+docker compose -f docker-compose.warp.yml up -d --force-recreate
 
 echo "[INFO] 清理悬空镜像..."
 docker image prune -f
 
 echo "[INFO] 升级完成"
-docker compose ps
+docker  compose -f docker-compose.warp.yml ps

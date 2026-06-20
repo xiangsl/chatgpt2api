@@ -105,6 +105,9 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                     result = account_service.keepalive_refresh_tokens(keepalive_tokens)
                     if result.get("errors"):
                         print(f"[account-watcher] keepalive errors: {result['errors']}")
+                reclaimed = account_service.cleanup_stale_image_inflight()
+                if reclaimed:
+                    print(f"[account-watcher] reclaimed {reclaimed} stale image inflight slots")
             except Exception as exc:
                 print(f"[account-watcher] fail {exc}")
             stop_event.wait(interval_seconds)

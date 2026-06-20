@@ -54,6 +54,7 @@ class AccountService:
         self._index = 0
         self._accounts = self._load_accounts()
         self._image_inflight: dict[str, int] = {}
+        self._image_inflight_times: dict[str, list[float]] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
 
@@ -426,6 +427,9 @@ class AccountService:
                 old_inflight = int(self._image_inflight.pop(old_token, 0))
                 if old_inflight:
                     self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
+                old_times = self._image_inflight_times.pop(old_token, [])
+                if old_times:
+                    self._image_inflight_times.setdefault(new_token, []).extend(old_times)
             self._accounts[new_token] = account
             self._save_accounts()
             self._image_slot_condition.notify_all()
@@ -922,6 +926,53 @@ class AccountService:
             if int(self._image_inflight.get(token, 0)) < max_concurrency
         ]
 
+    def _cleanup_stale_image_inflight_locked(self, now: float | None = None) -> int:
+        """回收超时未释放的图片在途槽位。须在 _image_slot_condition 内调用。"""
+        timeout_secs = int(config.image_inflight_timeout_secs or 0)
+        if timeout_secs <= 0:
+            return 0
+        now = now if now is not None else time.time()
+        reclaimed = 0
+        reclaimed_tokens: list[str] = []
+        for token in list(self._image_inflight.keys()):
+            resolved = self._resolve_access_token_locked(token)
+            times = list(self._image_inflight_times.get(resolved) or self._image_inflight_times.get(token) or [])
+            if not times:
+                continue
+            fresh_times: list[float] = []
+            stale_count = 0
+            for started_at in times:
+                if now - started_at > timeout_secs:
+                    stale_count += 1
+                else:
+                    fresh_times.append(started_at)
+            if stale_count <= 0:
+                continue
+            reclaimed += stale_count
+            reclaimed_tokens.append(anonymize_token(resolved))
+            current = int(self._image_inflight.get(resolved, self._image_inflight.get(token, 0)))
+            new_count = max(0, current - stale_count)
+            if new_count > 0:
+                self._image_inflight[resolved] = new_count
+                self._image_inflight_times[resolved] = fresh_times
+            else:
+                self._image_inflight.pop(resolved, None)
+                self._image_inflight.pop(token, None)
+                self._image_inflight_times.pop(resolved, None)
+                self._image_inflight_times.pop(token, None)
+        if reclaimed:
+            self._image_slot_condition.notify_all()
+            log_service.add(
+                LOG_TYPE_ACCOUNT,
+                f"自动回收 {reclaimed} 个超时图片在途槽位",
+                {"reclaimed": reclaimed, "tokens": reclaimed_tokens[:20], "timeout_secs": timeout_secs},
+            )
+        return reclaimed
+
+    def cleanup_stale_image_inflight(self) -> int:
+        with self._image_slot_condition:
+            return self._cleanup_stale_image_inflight_locked()
+
     def _acquire_next_candidate_token(
             self,
             excluded_tokens: set[str] | None = None,
@@ -931,6 +982,7 @@ class AccountService:
     ) -> str:
         with self._image_slot_condition:
             while True:
+                self._cleanup_stale_image_inflight_locked()
                 if not self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types):
                     raise RuntimeError(
                         f"no available {plan_type or source_type or ''} image quota".replace("  ", " ").strip()
@@ -941,6 +993,7 @@ class AccountService:
                     access_token = tokens[self._index % len(tokens)]
                     self._index += 1
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
+                    self._image_inflight_times.setdefault(access_token, []).append(time.time())
                     return access_token
                 self._image_slot_condition.wait(timeout=1.0)
 
@@ -949,9 +1002,15 @@ class AccountService:
             return
         with self._image_slot_condition:
             access_token = self._resolve_access_token_locked(access_token)
+            times = self._image_inflight_times.get(access_token)
+            if times:
+                times.pop(0)
+                if not times:
+                    self._image_inflight_times.pop(access_token, None)
             current_inflight = int(self._image_inflight.get(access_token, 0))
             if current_inflight <= 1:
                 self._image_inflight.pop(access_token, None)
+                self._image_inflight_times.pop(access_token, None)
             else:
                 self._image_inflight[access_token] = current_inflight - 1
             self._image_slot_condition.notify_all()
@@ -1059,6 +1118,7 @@ class AccountService:
         若某账号该值持续 > 0，说明其并发槽位泄漏、已被静默排除出调度，可借此在 UI 上诊断。
         """
         with self._lock:
+            self._cleanup_stale_image_inflight_locked()
             result = []
             for item in self._accounts.values():
                 account = dict(item)
@@ -1181,6 +1241,7 @@ class AccountService:
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
                 self._image_inflight.pop(token, None)
+                self._image_inflight_times.pop(token, None)
             self._token_aliases = {
                 old: new
                 for old, new in self._token_aliases.items()

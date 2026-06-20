@@ -83,11 +83,8 @@ services:
       start_period: 30s
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: chatgpt2api:warp
-    container_name: chatgpt2api-warp
+    image: tydic:chatgpt2api
+    container_name: chatgpt2api
     restart: unless-stopped
     depends_on:
       init-config:
