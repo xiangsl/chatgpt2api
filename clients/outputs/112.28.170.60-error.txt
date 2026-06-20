@@ -1,7 +1,0 @@
-64.61s | 线程-62 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的草原平原，远处有低矮山丘，天空少云，自然光线
-69.34s | 线程-25 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的海岸线，平静海水，沙滩与礁石，水平线清晰
-74.22s | 线程-46 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的瀑布，水流从岩壁垂直落下，四周是绿色植被
-77.12s | 线程-57 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的海岸线，平静海水，沙滩与礁石，水平线清晰
-79.62s | 线程-50 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的瀑布，水流从岩壁垂直落下，四周是绿色植被
-80.08s | 线程-43 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的针叶林内部，高大乔木排列，地面覆盖落叶与苔藓
-90.12s | 线程-19 | 请求错误: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)) | 提示词: 写实风格的沙漠沙丘，起伏沙纹，远处地平线，午后侧光

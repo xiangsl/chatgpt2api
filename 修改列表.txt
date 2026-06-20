@@ -2,6 +2,6 @@ web\src\app\image\page.tsx
 web\src\app\login\page.tsx
 web\src\components\top-nav.tsx
 
-
-docker build -t tydic:chatgpt2api .
-DOCKER_BUILDKIT=1 docker build -t tydic:chatgpt2api .
+docker compose -f docker-compose.warp.yml up -d
+docker build -t tydic:chatgpt2api . --no-cache
+DOCKER_BUILDKIT=1 docker build -t tydic:chatgpt2api .  --no-cache

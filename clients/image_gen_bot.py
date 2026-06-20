@@ -351,6 +351,27 @@ _error_log_lock = threading.Lock()
 
 
 
+_image_save_lock = threading.Lock()
+
+
+def save_generated_image(b64_json: str, output_dir: Path) -> Path | None:
+    """将 base64 图片解码并保存到 output_dir，文件名以时间戳命名。"""
+    try:
+        img_bytes = base64.b64decode(b64_json)
+        with _image_save_lock:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            path = output_dir / f"{ts}.png"
+            while path.exists():
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                path = output_dir / f"{ts}.png"
+            with open(path, "wb") as f:
+                f.write(img_bytes)
+        return path
+    except Exception as e:
+        logger.error("保存图片失败: %s", e)
+        return None
+
+
 def write_error_log(error_path: Path, thread_id: int, response_time: float, error_msg: str, prompt: str):
 
     """将失败日志写入 error.txt，每行一条，行首为耗时。"""
@@ -379,7 +400,7 @@ def write_error_log(error_path: Path, thread_id: int, response_time: float, erro
 
 def worker(thread_id: int, config: dict, stop_event: threading.Event,
 
-           stats_path: Path, error_path: Path, global_stats: GlobalStats):
+           output_dir: Path, stats_path: Path, error_path: Path, global_stats: GlobalStats):
 
     api_cfg = config["api"]
 
@@ -401,7 +422,7 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
 
 
 
-        success, response_time, error_msg, _ = generate_image(
+        success, response_time, error_msg, b64_json = generate_image(
 
             base_url=api_cfg["base_url"],
 
@@ -421,7 +442,11 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
 
         if success:
 
-            logger.info("线程-%02d | 生成成功 (%.2f 秒)", thread_id, response_time)
+            saved_path = save_generated_image(b64_json, output_dir) if b64_json else None
+            if saved_path:
+                logger.info("线程-%02d | 生成成功 (%.2f 秒), 已保存: %s", thread_id, response_time, saved_path.name)
+            else:
+                logger.info("线程-%02d | 生成成功 (%.2f 秒), 但保存失败", thread_id, response_time)
 
             hit_milestone = global_stats.record_call(True, response_time)
 
@@ -519,7 +544,7 @@ def main():
 
             target=worker,
 
-            args=(i, config, stop_event, stats_path, error_path, global_stats),
+            args=(i, config, stop_event, output_dir, stats_path, error_path, global_stats),
 
             name=f"Worker-{i:02d}",
 

@@ -12,7 +12,10 @@ from services.protocol.conversation import (
     count_text_tokens,
     encode_images,
     stream_image_chunks,
-    stream_image_outputs_with_pool,
+)
+from services.protocol.openai_v1_image_generations import (
+    normalize_collected_image_sizes,
+    resolve_stream_image_outputs,
 )
 from utils.image_tokens import count_image_inputs_tokens, count_image_output_items_tokens, image_usage
 
@@ -63,7 +66,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     encoded_images = encode_images(images)
     if not encoded_images:
         raise ImageGenerationError("image is required")
-    outputs = stream_image_outputs_with_pool(ConversationRequest(
+    request = ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
@@ -74,10 +77,12 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         images=encoded_images,
         message_as_error=True,
         progress_callback=progress_callback,
-    ))
+    )
+    outputs = resolve_stream_image_outputs(request)
     if body.get("stream"):
         return stream_image_chunks(outputs)
     result = collect_image_outputs(outputs)
+    result = normalize_collected_image_sizes(result, size, response_format, base_url)
     result["usage"] = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
         input_image_tokens=count_image_inputs_tokens(images, model),

@@ -1,15 +1,15 @@
 {
-  "auth-key": "key",
-  "refresh_account_interval_minute": 60,
+  "auth-key": "Abcd@19860202",
+  "refresh_account_interval_minute": 5,
   "full_refresh_account_interval_minute": 20,
   "if_write_image": 0,
-  "image_retention_days": 5,
+  "image_retention_days": 0.5,
   "image_poll_timeout_secs": 180,
   "auto_remove_rate_limited_accounts": true,
   "auto_remove_invalid_accounts": true,
   "log_levels": [
-    "info",
-    "warning"
+    "warning",
+    "error"
   ],
   "proxy": "",
   "proxy_runtime": {
@@ -92,10 +92,10 @@
     "drop_adjacent_duplicates": true,
     "drop_assistant_history": false
   },
-  "image_settle_enabled": false,
-  "image_check_before_hit_enabled": false,
+  "image_settle_enabled": true,
+  "image_check_before_hit_enabled": true,
   "image_settle_secs": 2,
-  "auto_relogin_after_refresh": false,
+  "auto_relogin_after_refresh": true,
   "image_timeout_retry_secs": 30,
   "third_party_apps": {
     "infinite_canvas": {

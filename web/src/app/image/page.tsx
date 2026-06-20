@@ -445,7 +445,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const imageTimeoutRetrySecs = Number(config?.image_timeout_retry_secs || 30);
 
   const [imagePrompt, setImagePrompt] = useState("");
-  const [imageCount, setImageCount] = useState("3");
+  const [imageCount, setImageCount] = useState("1");
   const [imageRatio, setImageRatio] = useState("auto");
   const [imageTier, setImageTier] = useState("1k");
   const [imageWidth, setImageWidth] = useState("1024");

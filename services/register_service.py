@@ -303,4 +303,8 @@ class RegisterService:
         self._append_log(f"注册任务结束，成功{success}，失败{fail}", "yellow")
 
 
+from services.register.register_service_patch import patch_register_service
+
+patch_register_service(RegisterService)
+
 register_service = RegisterService(REGISTER_FILE)
