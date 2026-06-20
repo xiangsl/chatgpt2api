@@ -1,5 +1,5 @@
 #!/bin/bash
-# 在控制机上执行：批量将镜像分发到各目标机器并升级
+# 在控制机上执行：将 chatgpt2api.zip 批量分发到各目标机器
 if [ -z "${BASH_VERSION:-}" ]; then
   exec bash "$0" "$@"
 fi
@@ -8,10 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-TAR_FILE="chatgpt2api.tar"
+ZIP_FILE="chatgpt2api.zip"
 UPDATE_SCRIPT="update.sh"
 HOSTS_FILE="hosts.txt"
-CONFIG_FILE="config.json"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -23,24 +22,26 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 usage() {
     cat <<'EOF'
-用法: ./deploy.sh
+用法: ./distribute-zip.sh [-f hosts.txt]
 
-控制机 deploy 目录下需包含:
-  deploy.sh              本脚本
-  update.sh              目标机器升级脚本
-  chatgpt2api.tar        Docker 镜像包
-  config.json            服务配置
-  hosts.txt              主机列表
+控制机 deploy-file 目录下需包含:
+  distribute-zip.sh      本脚本
+  update.sh              目标机器解压脚本
+  chatgpt2api.zip        待分发压缩包
+  hosts.txt              主机列表（默认）
 
-hosts.txt 格式（一行一台，字段以 | 分隔）:
+选项:
+  -f <file>              指定主机列表文件（默认 hosts.txt）
+
+hosts 文件格式（一行一台，字段以 | 分隔）:
   主机|用户名|密码|目标文件夹
 
 示例:
   192.168.1.100|root|your_password|/opt/chatgpt2api
   10.0.0.5|admin|secret123|/home/admin/chatgpt2api
 
-打包镜像（在构建机执行）:
-  docker save tydic:chatgpt2api -o chatgpt2api.tar
+  ./distribute-zip.sh
+  ./distribute-zip.sh -f hosts.txt
 
 依赖: sshpass, scp, ssh
   Ubuntu/Debian: apt install sshpass openssh-client
@@ -62,9 +63,9 @@ check_deps() {
 
 check_files() {
     local missing=()
-    for f in "$TAR_FILE" "$UPDATE_SCRIPT" "$HOSTS_FILE" "$CONFIG_FILE"; do
-        [[ -f "$f" ]] || missing+=("$f")
-    done
+    [[ -f "$HOSTS_FILE" ]] || missing+=("$HOSTS_FILE")
+    [[ -f "$ZIP_FILE" ]] || missing+=("$ZIP_FILE")
+    [[ -f "$UPDATE_SCRIPT" ]] || missing+=("$UPDATE_SCRIPT")
     if ((${#missing[@]} > 0)); then
         log_error "缺少文件: ${missing[*]}"
         usage
@@ -76,7 +77,6 @@ parse_line() {
     local line="$1"
     host="" user="" password="" target_dir=""
 
-    # 去掉首尾空白及 Windows 换行符
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
     line="${line//$'\r'/}"
@@ -85,7 +85,6 @@ parse_line() {
     if [[ "$line" == *"|"* ]]; then
         IFS='|' read -r host user password target_dir <<< "$line"
     else
-        # 兼容空格分隔：主机 用户名 密码 目标文件夹（密码中不可含空格）
         read -r host user password target_dir <<< "$line"
     fi
 
@@ -99,7 +98,7 @@ parse_line() {
     return 0
 }
 
-deploy_one() {
+distribute_one() {
     local host="$1" user="$2" password="$3" target_dir="$4"
     local conn_opts=(
         -o StrictHostKeyChecking=no
@@ -110,9 +109,9 @@ deploy_one() {
         -o ServerAliveCountMax=120
     )
     local remote="${user}@${host}"
-    local tar_size start elapsed
+    local zip_size start elapsed
 
-    log_info "========== 开始部署: ${host} (${target_dir}) =========="
+    log_info "========== 开始分发: ${host} (${target_dir}) =========="
 
     log_info "${host}: 检查远程目标目录 ${target_dir} ..."
     if ! sshpass -p "$password" ssh -n "${conn_opts[@]}" "$remote" "test -d '${target_dir}'"; then
@@ -120,11 +119,11 @@ deploy_one() {
         return 1
     fi
 
-    tar_size="$(du -h "$TAR_FILE" | cut -f1)"
-    log_info "${host}: 上传 ${UPDATE_SCRIPT}、${TAR_FILE}、${CONFIG_FILE}（约 ${tar_size}），大文件可能需几分钟 ..."
+    zip_size="$(du -h "$ZIP_FILE" | cut -f1)"
+    log_info "${host}: 上传 ${UPDATE_SCRIPT}、${ZIP_FILE}（约 ${zip_size}），大文件可能需几分钟 ..."
     start=$(date +%s)
     if ! sshpass -p "$password" scp "${conn_opts[@]}" \
-        "$UPDATE_SCRIPT" "$TAR_FILE" "$CONFIG_FILE" \
+        "$UPDATE_SCRIPT" "$ZIP_FILE" \
         "${remote}:${target_dir}/" </dev/null; then
         log_error "${host}: 文件复制失败"
         return 1
@@ -132,23 +131,37 @@ deploy_one() {
     elapsed=$(( $(date +%s) - start ))
     log_info "${host}: 上传完成，耗时 ${elapsed}s"
 
-    log_info "${host}: 执行升级脚本（docker load / compose 可能较慢）..."
+    log_info "${host}: 执行解压脚本 ..."
     if ! sshpass -p "$password" ssh -n -tt "${conn_opts[@]}" "$remote" \
         "chmod +x '${target_dir}/${UPDATE_SCRIPT}' && bash '${target_dir}/${UPDATE_SCRIPT}' '${target_dir}'"; then
-        log_error "${host}: 升级脚本执行失败"
+        log_error "${host}: 解压脚本执行失败"
         return 1
     fi
 
-    log_info "========== 部署成功: ${host} =========="
+    log_info "========== 分发成功: ${host} =========="
     echo
     return 0
 }
 
 main() {
-    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-        usage
-        exit 0
-    fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            -f)
+                shift
+                HOSTS_FILE="${1:?缺少 -f 参数值}"
+                ;;
+            *)
+                log_error "未知参数: $1"
+                usage
+                exit 1
+                ;;
+        esac
+        shift
+    done
 
     check_deps
     check_files
@@ -156,11 +169,10 @@ main() {
     local total=0 ok=0 fail=0
     local host user password target_dir
 
-    # 用 fd 3 读 hosts.txt，避免 deploy_one 里的 ssh/scp 从 stdin 吃掉下一行
     while IFS= read -r line <&3 || [[ -n "$line" ]]; do
         parse_line "$line" || continue
         total=$((total + 1))
-        if deploy_one "$host" "$user" "$password" "$target_dir"; then
+        if distribute_one "$host" "$user" "$password" "$target_dir"; then
             ok=$((ok + 1))
         else
             fail=$((fail + 1))
@@ -168,7 +180,7 @@ main() {
     done 3< "$HOSTS_FILE"
 
     echo
-    log_info "部署完成: 共 ${total} 台, 成功 ${ok} 台, 失败 ${fail} 台"
+    log_info "分发完成: 共 ${total} 台, 成功 ${ok} 台, 失败 ${fail} 台"
     [[ "$fail" -eq 0 ]]
 }
 

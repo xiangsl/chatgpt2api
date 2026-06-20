@@ -59,6 +59,8 @@ stats_lock = threading.Lock()
 openai_proxy_lock = threading.Lock()
 cloudflare_fail_count = 0
 force_openai_proxy = False
+# TEST: True = OpenAI 注册始终走 config.proxy，不走本地/清障
+ALWAYS_USE_OPENAI_PROXY = False
 stats = {"done": 0, "success": 0, "fail": 0, "start_time": 0.0}
 register_log_sink = None
 
@@ -76,7 +78,7 @@ def reset_openai_proxy_state() -> None:
 
 def resolve_openai_proxy() -> str:
     with openai_proxy_lock:
-        if force_openai_proxy:
+        if ALWAYS_USE_OPENAI_PROXY or force_openai_proxy:
             return str(config.get("proxy") or "").strip()
         return ""
 
@@ -322,12 +324,15 @@ def _headers_with_clearance(
     proxy: str = "",
     user_agent_override: str = "",
 ) -> dict[str, str]:
-    merged = proxy_settings.build_headers(
-        headers=headers,
-        target_url=target_url,
-        proxy=proxy,
-        upstream=True,
-    )
+    if str(proxy or "").strip():
+        merged = headers
+    else:
+        merged = proxy_settings.build_headers(
+            headers=headers,
+            target_url=target_url,
+            proxy=proxy,
+            upstream=True,
+        )
     normalized = {str(key): str(value) for key, value in merged.items()}
     if user_agent_override:
         ua_key = next((key for key in normalized if key.lower() == "user-agent"), "user-agent")
@@ -442,8 +447,9 @@ class PlatformRegistrar:
     def _open_openai_session(self, proxy: str = "") -> None:
         if self.session is not None:
             self.session.close()
-        self.openai_proxy_used = proxy
-        self.session = create_session(proxy)
+        self.proxy = str(proxy or "").strip()
+        self.openai_proxy_used = self.proxy
+        self.session = create_session(self.proxy)
 
     def close(self) -> None:
         if self.session is not None:
@@ -465,6 +471,10 @@ class PlatformRegistrar:
 
     def _refresh_cloudflare_clearance(self, target_url: str, index: int) -> ClearanceBundle | None:
         self.clearance_failure_reason = ""
+        if self.proxy:
+            self.clearance_failure_reason = "网络代理模式下不使用清障，请检查或更换代理"
+            step(index, f"检测到 Cloudflare 拦截，{self.clearance_failure_reason}", "yellow")
+            return None
         profile = proxy_settings.get_profile(proxy=self.proxy, upstream=True)
         if not profile.clearance_enabled:
             self.clearance_failure_reason = (
@@ -697,14 +707,24 @@ def worker(index: int) -> dict:
             stats["fail"] += 1
         error_msg = str(e)
         log(f"任务{index} 注册失败，本次耗时{cost:.1f}s，原因: {error_msg}", "red")
+        #这类错误，本地一般是跳不过去了，需要代理
         if "Cloudflare" in error_msg:
             if not registrar.openai_proxy_used:
                 record_openai_cloudflare_failure()
             step(index, error_msg+"，线程休息 5s", "yellow")
-            time.sleep(5)
+            time.sleep(10)
+        #这类错误，本地一般是跳不过去了，需要代理
         if "OpenAI's services are not available in your country" in error_msg:
             if not registrar.openai_proxy_used:
                 record_openai_cloudflare_failure()
+            step(index, error_msg+"，线程休息 5s", "yellow")
+            time.sleep(10)
+        #这类错误，本地一般是跳不过去了，需要代理
+        if "user_register_http_409" in error_msg:
+            if not registrar.openai_proxy_used:
+                record_openai_cloudflare_failure()
+            step(index, error_msg+"，线程休息 5s", "yellow")
+            time.sleep(10)
         return {"ok": False, "index": index, "error": error_msg}
     finally:
         registrar.close()

@@ -1,0 +1,42 @@
+# 主机列表，一行一台
+# 格式: 主机|用户名|密码|目标文件夹
+# 以 # 开头的行为注释
+
+38.58.59.193|root|Abcd@19860202|/root/chatgpt2api
+154.44.9.248|root|Abcd@19860202|/root/chatgpt2api
+154.44.9.104|root|Abcd@19860202|/root/chatgpt2api
+38.58.58.246|root|Abcd@19860202|/root/chatgpt2api
+38.58.59.196|root|Abcd@19860202|/root/chatgpt2api
+38.58.59.80|root|Abcd@19860202|/root/chatgpt2api
+38.58.59.180|root|Abcd@19860202|/root/chatgpt2api
+38.58.59.250|root|Abcd@19860202|/root/chatgpt2api
+85.239.236.111|root|Abcd@19860202|/root/chatgpt2api
+62.146.174.118|root|Abcd@19860202|/root/chatgpt2api
+62.146.174.248|root|Abcd@19860202|/root/chatgpt2api
+66.94.113.160|root|Abcd@19860202|/root/chatgpt2api
+66.94.114.17|root|Abcd@19860202|/root/chatgpt2api
+94.72.124.64|root|Abcd@19860202|/root/chatgpt2api
+38.58.58.228|root|Abcd@19860202|/root/chatgpt2api
+38.58.58.16|root|Abcd@19860202|/root/chatgpt2api
+149.88.90.73|root|Abcd@19860202|/root/chatgpt2api
+149.88.90.69|root|Abcd@19860202|/root/chatgpt2api
+154.201.79.71|root|Abcd@19860202|/root/chatgpt2api
+154.201.79.158|root|Abcd@19860202|/root/chatgpt2api
+45.207.200.27|root|Abcd@19860202|/root/chatgpt2api
+45.207.200.57|root|Abcd@19860202|/root/chatgpt2api
+109.123.230.215|root|Abcd@19860202|/root/chatgpt2api
+66.94.123.243|root|Abcd@19860202|/root/chatgpt2api
+66.94.125.234|root|Abcd@19860202|/root/chatgpt2api
+66.94.124.195|root|Abcd@19860202|/root/chatgpt2api
+66.94.112.233|root|Abcd@19860202|/root/chatgpt2api
+66.94.124.171|root|Abcd@19860202|/root/chatgpt2api
+66.94.124.167|root|Abcd@19860202|/root/chatgpt2api
+62.146.174.114|root|Abcd@19860202|/root/chatgpt2api
+62.146.172.252|root|Abcd@19860202|/root/chatgpt2api
+89.117.22.253|root|Abcd@19860202|/root/chatgpt2api
+62.146.173.209|root|Abcd@19860202|/root/chatgpt2api
+85.239.238.222|root|Abcd@19860202|/root/chatgpt2api
+85.239.236.72|root|Abcd@19860202|/root/chatgpt2api
+85.239.237.206|root|Abcd@19860202|/root/chatgpt2api
+62.146.174.113|root|Abcd@19860202|/root/chatgpt2api
+62.146.174.107|root|Abcd@19860202|/root/chatgpt2api

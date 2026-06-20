@@ -35,13 +35,22 @@ class FakeSession:
         self.closed = True
 
 
+class FakeProfile:
+    def __init__(self, clearance_enabled: bool = True) -> None:
+        self.clearance_enabled = clearance_enabled
+
+
 class FakeProxySettings:
-    def __init__(self, bundle=None):
+    def __init__(self, bundle=None, clearance_enabled: bool = True):
         self.bundle = bundle
+        self.clearance_enabled = clearance_enabled
         self.refreshed = False
         self.session_kwargs_calls = []
         self.build_headers_calls = []
         self.refresh_calls = []
+
+    def get_profile(self, **kwargs):
+        return FakeProfile(clearance_enabled=self.clearance_enabled)
 
     def build_session_kwargs(self, **kwargs):
         self.session_kwargs_calls.append(kwargs)
@@ -85,7 +94,7 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertEqual(session.kwargs["proxy"], "http://runtime.example:8118")
 
     def test_cloudflare_without_clearance_keeps_clear_register_error(self):
-        fake_proxy = FakeProxySettings(bundle=None)
+        fake_proxy = FakeProxySettings(bundle=None, clearance_enabled=False)
         cf_response = FakeResponse(
             status_code=403,
             text="<html><title>Just a moment...</title></html>",
@@ -98,11 +107,11 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
             "create_session",
             return_value=FakeSession(),
         ), patch.object(openai_register, "request_with_local_retry", return_value=(cf_response, "")):
-            registrar = openai_register.PlatformRegistrar(proxy="http://legacy-register.example:8080")
+            registrar = openai_register.PlatformRegistrar(proxy="")
             with self.assertRaisesRegex(RuntimeError, "Cloudflare") as ctx:
                 registrar._platform_authorize("user@example.com", 1)
 
-        self.assertEqual(len(fake_proxy.refresh_calls), 1)
+        self.assertEqual(len(fake_proxy.refresh_calls), 0)
         self.assertIn("status=403", str(ctx.exception))
         self.assertIn("Just a moment", str(ctx.exception))
 
@@ -148,7 +157,7 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
             "create_session",
             return_value=FakeSession(),
         ), patch.object(openai_register, "request_with_local_retry", side_effect=fake_request):
-            registrar = openai_register.PlatformRegistrar(proxy="http://legacy-register.example:8080")
+            registrar = openai_register.PlatformRegistrar(proxy="")
             registrar._platform_authorize("user@example.com", 1)
 
         self.assertEqual(len(request_calls), 2)
@@ -157,7 +166,7 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertEqual(retry_headers["user-agent"], "Flare UA")
         self.assertEqual(retry_headers["cookie"], "cf_clearance=flare-token")
         self.assertEqual(fake_proxy.refresh_calls[0]["target_url"], openai_register.auth_base)
-        self.assertEqual(fake_proxy.refresh_calls[0]["proxy"], "http://legacy-register.example:8080")
+        self.assertEqual(fake_proxy.refresh_calls[0]["proxy"], "")
         self.assertTrue(fake_proxy.refresh_calls[0]["force"])
 
     def test_refresh_failure_reports_cloudflare_detail_without_infinite_retry(self):
@@ -188,6 +197,35 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("status=403", message)
         self.assertIn("challenge body", message)
+
+    def test_proxy_mode_skips_clearance_on_cloudflare(self):
+        fake_proxy = FakeProxySettings(
+            bundle=ClearanceBundle(
+                target_host="auth.openai.com",
+                cookies={"cf_clearance": "flare-token"},
+                user_agent="Flare UA",
+            )
+        )
+        cf_response = FakeResponse(
+            status_code=403,
+            text="<html><title>Just a moment...</title></html>",
+            headers={"server": "cloudflare", "content-type": "text/html"},
+            url="https://auth.openai.com/api/accounts/authorize",
+        )
+
+        with patch.object(openai_register, "proxy_settings", fake_proxy), patch.object(
+            openai_register,
+            "create_session",
+            return_value=FakeSession(),
+        ), patch.object(openai_register, "request_with_local_retry", return_value=(cf_response, "")):
+            registrar = openai_register.PlatformRegistrar(proxy="http://legacy-register.example:8080")
+            registrar._open_openai_session("http://legacy-register.example:8080")
+            with self.assertRaisesRegex(RuntimeError, "网络代理模式下不使用清障") as ctx:
+                registrar._platform_authorize("user@example.com", 1)
+
+        self.assertEqual(len(fake_proxy.refresh_calls), 0)
+        self.assertFalse(registrar.clearance_used)
+        self.assertIn("status=403", str(ctx.exception))
 
 
 if __name__ == "__main__":
