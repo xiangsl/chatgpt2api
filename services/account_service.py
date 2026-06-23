@@ -1387,15 +1387,17 @@ class AccountService:
         if not access_token:
             raise ValueError("access_token is required")
 
+        from services.fetch_remote_info_transport import fetch_user_info_with_403_fallback
+        from services.openai_backend_api import InvalidAccessTokenError
+
         active_token = self.refresh_access_token(access_token, event=f"{event}:preflight") or access_token
         try:
-            from services.openai_backend_api import InvalidAccessTokenError, OpenAIBackendAPI
-            result = OpenAIBackendAPI(active_token).get_user_info()
+            result = fetch_user_info_with_403_fallback(active_token)
         except InvalidAccessTokenError as exc:
             refreshed_token = self.refresh_access_token(active_token, force=True, event=f"{event}:invalid_access_token")
             if refreshed_token and refreshed_token != active_token:
                 try:
-                    result = OpenAIBackendAPI(refreshed_token).get_user_info()
+                    result = fetch_user_info_with_403_fallback(refreshed_token)
                 except InvalidAccessTokenError as retry_exc:
                     if self._record_invalid_token_seen(
                         refreshed_token,

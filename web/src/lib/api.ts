@@ -334,6 +334,8 @@ export type RegisterConfig = {
     providers: Array<Record<string, unknown>>;
   };
   proxy: string;
+  always_use_openai_proxy: boolean;
+  always_use_fetch_remote_info_proxy: boolean;
   total: number;
   threads: number;
   mode: "total" | "quota" | "available";

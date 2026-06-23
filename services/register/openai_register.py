@@ -30,13 +30,15 @@ config = {
         "providers": [],
     },
     "proxy": "",
+    "always_use_openai_proxy": False,
+    "always_use_fetch_remote_info_proxy": False,
     "total": 10,
     "threads": 3,
 }
 register_config_file = base_dir.parents[1] / "data" / "register.json"
 try:
     saved_config = json.loads(register_config_file.read_text(encoding="utf-8"))
-    config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads") if key in saved_config})
+    config.update({key: saved_config[key] for key in ("mail", "proxy", "always_use_openai_proxy", "always_use_fetch_remote_info_proxy", "total", "threads") if key in saved_config})
 except Exception:
     pass
 
@@ -59,8 +61,6 @@ stats_lock = threading.Lock()
 openai_proxy_lock = threading.Lock()
 cloudflare_fail_count = 0
 force_openai_proxy = False
-# TEST: True = OpenAI 注册始终走 config.proxy，不走本地/清障
-ALWAYS_USE_OPENAI_PROXY = False
 stats = {"done": 0, "success": 0, "fail": 0, "start_time": 0.0}
 register_log_sink = None
 
@@ -78,7 +78,7 @@ def reset_openai_proxy_state() -> None:
 
 def resolve_openai_proxy() -> str:
     with openai_proxy_lock:
-        if ALWAYS_USE_OPENAI_PROXY or force_openai_proxy:
+        if bool(config.get("always_use_openai_proxy")) or force_openai_proxy:
             return str(config.get("proxy") or "").strip()
         return ""
 

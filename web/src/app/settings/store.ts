@@ -327,6 +327,8 @@ type SettingsStore = {
   loadRegister: (silent?: boolean) => Promise<void>;
   setRegisterConfig: (config: RegisterConfig) => void;
   setRegisterProxy: (value: string) => void;
+  setRegisterAlwaysUseOpenaiProxy: (value: boolean) => void;
+  setRegisterAlwaysUseFetchRemoteInfoProxy: (value: boolean) => void;
   setRegisterTotal: (value: string) => void;
   setRegisterThreads: (value: string) => void;
   setRegisterMode: (value: "total" | "quota" | "available") => void;
@@ -898,6 +900,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, proxy: value } } : {});
   },
 
+  setRegisterAlwaysUseOpenaiProxy: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, always_use_openai_proxy: value } } : {});
+  },
+
+  setRegisterAlwaysUseFetchRemoteInfoProxy: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, always_use_fetch_remote_info_proxy: value } } : {});
+  },
+
   setRegisterTotal: (value) => {
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, total: Number(value) || 0 } } : {});
   },
@@ -975,6 +985,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const data = await updateRegisterConfig({
         mail: registerConfig.mail,
         proxy: registerConfig.proxy.trim(),
+        always_use_openai_proxy: Boolean(registerConfig.always_use_openai_proxy),
+        always_use_fetch_remote_info_proxy: Boolean(registerConfig.always_use_fetch_remote_info_proxy),
         total: Math.max(1, Number(registerConfig.total) || 1),
         threads: Math.max(1, Number(registerConfig.threads) || 1),
         mode: registerConfig.mode,
@@ -1000,6 +1012,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         await updateRegisterConfig({
           mail: registerConfig.mail,
           proxy: registerConfig.proxy.trim(),
+          always_use_openai_proxy: Boolean(registerConfig.always_use_openai_proxy),
+          always_use_fetch_remote_info_proxy: Boolean(registerConfig.always_use_fetch_remote_info_proxy),
           total: Math.max(1, Number(registerConfig.total) || 1),
           threads: Math.max(1, Number(registerConfig.threads) || 1),
           mode: registerConfig.mode,

@@ -14,6 +14,8 @@ from services.register_service import register_service
 class RegisterConfigRequest(BaseModel):
     mail: dict | None = None
     proxy: str | None = None
+    always_use_openai_proxy: bool | None = None
+    always_use_fetch_remote_info_proxy: bool | None = None
     total: int | None = None
     threads: int | None = None
     mode: str | None = None
