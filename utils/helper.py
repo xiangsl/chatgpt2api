@@ -2,7 +2,9 @@ import base64
 import hashlib
 import json
 import mimetypes
+import queue
 import re
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -226,16 +228,58 @@ def anthropic_sse_stream(items) -> Iterator[str]:
         yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
 
 
-def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
-    for raw_line in response.iter_lines():
-        if not raw_line:
-            continue
-        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
-        if not line.startswith("data:"):
-            continue
-        payload = line[5:].strip()
-        if payload:
-            yield payload
+def _next_iter_line(line_iter: Iterator[bytes | str], timeout: float | None) -> bytes | str | None:
+    if timeout is None:
+        return next(line_iter, None)
+    if timeout <= 0:
+        raise TimeoutError("SSE read timed out waiting for upstream data")
+    result: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            result.put(("line", next(line_iter)))
+        except StopIteration:
+            result.put(("done", None))
+        except Exception as exc:
+            result.put(("error", exc))
+
+    threading.Thread(target=worker, daemon=True).start()
+    try:
+        kind, value = result.get(timeout=timeout)
+    except queue.Empty:
+        raise TimeoutError("SSE read timed out waiting for upstream data") from None
+    if kind == "done":
+        return None
+    if kind == "error":
+        raise value  # type: ignore[misc]
+    return value  # type: ignore[return-value]
+
+
+def iter_sse_payloads(response: requests.Response, timeout_secs: float | None = None) -> Iterator[str]:
+    line_iter = iter(response.iter_lines())
+    deadline = time.time() + float(timeout_secs) if timeout_secs and timeout_secs > 0 else None
+    try:
+        while True:
+            wait_timeout = None if deadline is None else max(0.0, deadline - time.time())
+            if deadline is not None and wait_timeout <= 0:
+                raise TimeoutError(f"SSE read timed out after {int(timeout_secs)}s")
+            raw_line = _next_iter_line(line_iter, wait_timeout)
+            if raw_line is None:
+                return
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload:
+                yield payload
+    except TimeoutError:
+        try:
+            response.close()
+        except Exception:
+            pass
+        raise
 
 
 def save_images_from_text(text: str, prefix: str) -> list[Path]:

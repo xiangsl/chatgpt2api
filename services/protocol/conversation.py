@@ -108,10 +108,27 @@ def is_connection_timeout_error(message: str) -> bool:
     )
 
 
+def is_image_sse_stream_error(message: str, exc: BaseException | None = None) -> bool:
+    """生图 SSE 读流阶段错误（非 token 失效、非可重试的 TLS/连接超时）。"""
+    if isinstance(exc, TimeoutError) and "sse read timed out" in str(exc).lower():
+        return True
+    text = str(message or "")
+    if is_token_invalid_error(text) or is_tls_connection_error(text) or is_connection_timeout_error(text):
+        return False
+    lowered = text.lower()
+    return (
+        "failed to perform, curl:" in lowered
+        or "http/2 stream" in lowered
+        or "sse read timed out" in lowered
+    )
+
+
 def image_stream_error_message(message: str) -> str:
     text = str(message or "")
     if is_token_invalid_error(text):
         return "image generation failed"
+    if "sse read timed out" in text.lower():
+        return "upstream image stream timed out, please retry later"
     if is_tls_connection_error(text):
         return "upstream image connection failed, please retry later"
     if is_connection_timeout_error(text):
@@ -1233,12 +1250,15 @@ def _generate_single_image(
     MAX_POLL_TIMEOUT_RETRIES = 4
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
     MAX_CONTENT_POLICY_RETRIES = 3
+    # SSE 读流错误最大换号重试次数
+    MAX_SSE_STREAM_RETRIES = 3
 
     text_reply_retry_count = 0
     tls_retry_count = 0
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
     content_policy_retry_count = 0
+    sse_stream_retry_count = 0
     account_email = ""
 
     while True:
@@ -1480,6 +1500,26 @@ def _generate_single_image(
                     })
                     time.sleep(wait_secs)
                     continue
+            if not emitted_for_token and token and is_image_sse_stream_error(last_error, exc):
+                account_service.remove_invalid_token(token, "image_stream_error")
+                sse_stream_retry_count += 1
+                if sse_stream_retry_count <= MAX_SSE_STREAM_RETRIES:
+                    logger.warning({
+                        "event": "image_stream_sse_error_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": sse_stream_retry_count,
+                        "index": index,
+                        "error": last_error[:200],
+                    })
+                    continue
+                logger.warning({
+                    "event": "image_stream_sse_error_exhausted_retries",
+                    "request_token": token,
+                    "account_email": account_email,
+                    "retry_count": sse_stream_retry_count,
+                    "index": index,
+                })
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
             if slot_acquired and token:

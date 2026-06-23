@@ -404,6 +404,14 @@ class ConfigStore:
             return 30.0
 
     @property
+    def image_sse_timeout_secs(self) -> int:
+        """生图 SSE 读流总时长上限（秒），防止长连接一直挂着。"""
+        try:
+            return max(30, int(self.data.get("image_sse_timeout_secs", 60)))
+        except (TypeError, ValueError):
+            return 60
+
+    @property
     def image_poll_timeout_secs(self) -> int:
         try:
             return max(1, int(self.data.get("image_poll_timeout_secs", 120)))
@@ -563,6 +571,7 @@ class ConfigStore:
         data["refresh_account_interval_minute"] = self.refresh_account_interval_minute
         data["full_refresh_account_interval_minute"] = self.full_refresh_account_interval_minute
         data["image_retention_days"] = self.image_retention_days
+        data["image_sse_timeout_secs"] = self.image_sse_timeout_secs
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs

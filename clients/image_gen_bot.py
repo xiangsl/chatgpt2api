@@ -236,7 +236,7 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
 
     try:
 
-        resp = requests.post(url, headers=headers, json=payload, timeout=900)
+        resp = requests.post(url, headers=headers, json=payload, timeout=2000)
 
         resp.raise_for_status()
 

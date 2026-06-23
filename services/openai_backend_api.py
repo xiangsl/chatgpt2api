@@ -2563,7 +2563,7 @@ class OpenAIBackendAPI:
         response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
         self._report_progress("generating")
         try:
-            yield from iter_sse_payloads(response)
+            yield from iter_sse_payloads(response, timeout_secs=config.image_sse_timeout_secs)
         finally:
             response.close()
 
