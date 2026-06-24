@@ -34,6 +34,10 @@ export type Account = {
   restore_at?: string | null;
   success: number;
   fail: number;
+  /** 连续刷新失败次数，达到 3 次会自动删除 */
+  consecutive_refresh_failures?: number;
+  /** 最后一次刷新的 HTTP 状态码 */
+  last_code?: number | null;
   /** 当前图片在途数(正在生成、尚未结束的图片数)。号池空闲时持续 > 0 表示并发槽位泄漏。 */
   image_inflight?: number;
   last_used_at?: string | null;

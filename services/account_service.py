@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import secrets
 import time
 import uuid
@@ -31,6 +32,7 @@ class AccountService:
     _REFRESH_TOKEN_KEEPALIVE_ERROR_BACKOFF_SECONDS = 6 * 60 * 60
     _REFRESH_TOKEN_KEEPALIVE_BATCH_SIZE = 3
     _TOKEN_REFRESH_ERROR_BACKOFF_SECONDS = 5 * 60
+    _CONSECUTIVE_REFRESH_FAILURE_REMOVE = 3
     _OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
     _OAUTH_CLIENT_ID = "app_2SKx67EdpoN0G6j64rFvigXD"
     _OAUTH_USER_AGENT = (
@@ -236,6 +238,12 @@ class AccountService:
         normalized["success"] = int(normalized.get("success") or 0)
         normalized["fail"] = int(normalized.get("fail") or 0)
         normalized["invalid_count"] = int(normalized.get("invalid_count") or 0)
+        normalized["consecutive_refresh_failures"] = int(normalized.get("consecutive_refresh_failures") or 0)
+        try:
+            code = normalized.get("last_code")
+            normalized["last_code"] = int(code) if code is not None else None
+        except (TypeError, ValueError):
+            normalized["last_code"] = None
         normalized["last_used_at"] = normalized.get("last_used_at")
         normalized["last_invalid_at"] = normalized.get("last_invalid_at") or None
         normalized["last_refresh_error"] = normalized.get("last_refresh_error") or None
@@ -1289,12 +1297,45 @@ class AccountService:
                 return
             next_item = dict(current)
             next_item["invalid_count"] = 0
+            next_item["consecutive_refresh_failures"] = 0
+            next_item["last_code"] = 200
             next_item["last_invalid_at"] = None
             next_item["last_refresh_error"] = None
             next_item["last_refresh_error_at"] = None
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
+
+    @staticmethod
+    def _parse_refresh_http_code(error: str) -> int | None:
+        text = str(error or "")
+        if "token invalidated" in text.lower():
+            return 401
+        match = re.search(r"HTTP (\d{3})", text)
+        return int(match.group(1)) if match else None
+
+    def _record_refresh_failure(self, access_token: str, error: str = "") -> None:
+        last_code = self._parse_refresh_http_code(error)
+        token_to_delete = ""
+        with self._lock:
+            access_token = self._resolve_access_token_locked(access_token)
+            current = self._accounts.get(access_token)
+            if current is None:
+                return
+            count = int(current.get("consecutive_refresh_failures") or 0) + 1
+            if count >= self._CONSECUTIVE_REFRESH_FAILURE_REMOVE:
+                token_to_delete = access_token
+            else:
+                next_item = dict(current)
+                next_item["consecutive_refresh_failures"] = count
+                next_item["last_code"] = last_code
+                account = self._normalize_account(next_item)
+                if account is not None:
+                    self._accounts[access_token] = account
+                    self._save_accounts()
+                return
+        if token_to_delete:
+            self.delete_accounts([token_to_delete])
 
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):
@@ -1560,6 +1601,7 @@ class AccountService:
                     from services.protocol.conversation import is_tls_connection_error
                     if not is_tls_connection_error(error_str):
                         errors.append({"token": anonymize_token(token), "error": error_str})
+                    self._record_refresh_failure(token, error_str)
                 else:
                     if account is not None:
                         refreshed += 1

@@ -132,7 +132,7 @@ function formatRestoreAt(value?: string | null) {
   const totalHours = Math.ceil(diffMs / (1000 * 60 * 60));
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
-  const relative = diffMs > 0 ? `剩余 ${days}d ${hours}h` : "已到恢复时间";
+  const relative = diffMs > 0 ? `剩 ${days}d ${hours}h` : "已到恢复时间";
 
   const pad = (num: number) => String(num).padStart(2, "0");
   const absolute = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
@@ -193,6 +193,7 @@ function AccountsPageContent() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
+  const [httpCodeFilter, setHttpCodeFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -274,9 +275,14 @@ function AccountsPageContent() {
         normalizedQuery.length === 0 || (account.email ?? "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter;
-      return searchMatched && typeMatched && statusMatched;
+      const httpMatched =
+        httpCodeFilter === "all" ||
+        (httpCodeFilter === "none"
+          ? account.last_code == null
+          : String(account.last_code) === httpCodeFilter);
+      return searchMatched && typeMatched && statusMatched && httpMatched;
     });
-  }, [accounts, query, statusFilter, typeFilter]);
+  }, [accounts, query, statusFilter, typeFilter, httpCodeFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -303,6 +309,17 @@ function AccountsPageContent() {
     ],
     [accounts],
   );
+
+  const httpCodeFilterOptions = useMemo(() => {
+    const codes = Array.from(
+      new Set(accounts.map((account) => account.last_code).filter((code): code is number => code != null)),
+    ).sort((a, b) => a - b);
+    return [
+      { label: "全部 HTTP", value: "all" },
+      { label: "无记录", value: "none" },
+      ...codes.map((code) => ({ label: String(code), value: String(code) })),
+    ];
+  }, [accounts]);
 
   const selectedTokens = useMemo(() => {
     const selectedSet = new Set(selectedIds);
@@ -993,6 +1010,24 @@ function AccountsPageContent() {
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={httpCodeFilter}
+              onValueChange={(value) => {
+                setHttpCodeFilter(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {httpCodeFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -1065,27 +1100,33 @@ function AccountsPageContent() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1000px] text-left">
+              <table className="w-full min-w-[960px] table-fixed text-left">
                 <thead className="border-b border-stone-100 text-[11px] text-stone-400 uppercase tracking-[0.18em]">
                   <tr>
-                    <th className="w-12 px-4 py-3">
+                    <th className="w-8 px-1.5 py-2">
                       <Checkbox
                         checked={allCurrentSelected}
                         onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
                       />
                     </th>
-                    <th className="w-56 px-4 py-3">token</th>
-                    <th className="w-28 px-4 py-3">类型</th>
-                    <th className="w-24 px-4 py-3">来源</th>
-                    <th className="w-24 px-4 py-3">状态</th>
-                    <th className="w-56 px-4 py-3">账号信息</th>
-                    <th className="w-32 px-4 py-3">创建时间</th>
-                    <th className="w-24 px-4 py-3">额度</th>
-                    <th className="w-40 px-4 py-3">恢复时间</th>
-                    <th className="w-18 px-4 py-3">在途</th>
-                    <th className="w-18 px-4 py-3">成功</th>
-                    <th className="w-18 px-4 py-3">失败</th>
-                    <th className="w-24 px-4 py-3">操作</th>
+                    <th className="w-[148px] px-2 py-2">token</th>
+                    <th className="w-14 px-1.5 py-2">类型</th>
+                    <th className="w-14 px-1.5 py-2">来源</th>
+                    <th className="w-16 px-1.5 py-2">状态</th>
+                    <th className="w-[132px] px-2 py-2">账号信息</th>
+                    <th className="w-[72px] px-1.5 py-2">创建</th>
+                    <th className="w-12 px-1.5 py-2 text-center">额度</th>
+                    <th className="w-[108px] px-1.5 py-2">恢复</th>
+                    <th className="w-10 px-1 py-2 text-center">在途</th>
+                    <th className="w-10 px-1 py-2 text-center">成功</th>
+                    <th className="w-10 px-1 py-2 text-center">失败</th>
+                    <th className="w-12 px-1 py-2 text-center" title="连续刷新失败次数，达到 3 次自动删除">
+                      刷失败
+                    </th>
+                    <th className="w-10 px-1 py-2 text-center" title="最后一次刷新的 HTTP 状态码">
+                      HTTP
+                    </th>
+                    <th className="w-[72px] px-1.5 py-2 text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1098,7 +1139,7 @@ function AccountsPageContent() {
                         key={account.access_token}
                         className="border-b border-stone-100/80 text-sm text-stone-600 transition-colors hover:bg-stone-50/70"
                       >
-                        <td className="px-4 py-3">
+                        <td className="px-1.5 py-2">
                           <Checkbox
                             checked={selectedIds.includes(account.access_token)}
                             onCheckedChange={(checked) => {
@@ -1110,14 +1151,17 @@ function AccountsPageContent() {
                             }}
                           />
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium tracking-tight text-stone-700">
+                        <td className="px-2 py-2">
+                          <div className="flex min-w-0 items-center gap-1">
+                            <span
+                              className="truncate font-medium tracking-tight text-stone-700"
+                              title={account.access_token}
+                            >
                               {maskToken(account.access_token)}
                             </span>
                             <button
                               type="button"
-                              className="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                              className="shrink-0 rounded p-0.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
                               onClick={() => {
                                 void navigator.clipboard.writeText(account.access_token);
                                 toast.success("token 已复制");
@@ -1127,17 +1171,17 @@ function AccountsPageContent() {
                             </button>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-1.5 py-2">
                           <Badge variant="secondary" className="rounded-md bg-stone-100 text-stone-700">
                             {displayAccountType(account)}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-1.5 py-2">
                           <Badge variant="outline" className="rounded-md border-stone-200 text-stone-600">
                             {displayAccountSource(account)}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-1.5 py-2">
                           <Badge
                             variant={status.badge}
                             className="inline-flex items-center gap-1 rounded-md px-2 py-1"
@@ -1146,37 +1190,40 @@ function AccountsPageContent() {
                             {account.status}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
+                        <td className="px-2 py-2">
+                          <div className="truncate text-xs leading-5 text-stone-500" title={account.email ?? undefined}>
+                            {account.email ?? "—"}
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-stone-500">
+                        <td className="whitespace-nowrap px-1.5 py-2 text-xs leading-5 text-stone-500">
                           {(() => {
                             const raw = (account as any).created_at;
                             if (!raw) return "—";
                             try {
                               const d = new Date(raw + "Z");
                               if (isNaN(d.getTime())) return String(raw).slice(0, 10);
-                              return d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+                              const pad = (num: number) => String(num).padStart(2, "0");
+                              return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
                             } catch { return String(raw).slice(0, 10); }
                           })()}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-1.5 py-2 text-center">
                           <Badge variant="info" className="rounded-md">
                             {formatQuota(account)}
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-xs leading-5 text-stone-500">
+                        <td className="whitespace-nowrap px-1.5 py-2 text-xs leading-5 text-stone-500">
                           {(() => {
                             const restore = formatRestoreAt(account.restore_at);
+                            const label = restore.relative || restore.absolute;
                             return (
-                              <div className="space-y-0.5">
-                                {restore.relative ? <div className="font-medium text-stone-700">{restore.relative}</div> : null}
-                                <div>{restore.absolute}</div>
-                              </div>
+                              <span className="font-medium text-stone-700" title={restore.absolute}>
+                                {label}
+                              </span>
                             );
                           })()}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-1 py-2 text-center">
                           {(() => {
                             const inflight = account.image_inflight ?? 0;
                             return (
@@ -1197,13 +1244,35 @@ function AccountsPageContent() {
                             );
                           })()}
                         </td>
-                        <td className="px-4 py-3 text-stone-500">{account.success}</td>
-                        <td className="px-4 py-3 text-stone-500">{account.fail}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 text-stone-400">
+                        <td className="px-1 py-2 text-center text-stone-500">{account.success}</td>
+                        <td className="px-1 py-2 text-center text-stone-500">{account.fail}</td>
+                        <td className="px-1 py-2 text-center">
+                          {(() => {
+                            const refreshFails = account.consecutive_refresh_failures ?? 0;
+                            return (
+                              <span
+                                className={
+                                  refreshFails >= 2
+                                    ? "font-semibold text-rose-600"
+                                    : refreshFails > 0
+                                      ? "font-medium text-amber-600"
+                                      : "text-stone-400"
+                                }
+                                title="连续刷新失败次数，达到 3 次自动删除"
+                              >
+                                {refreshFails}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-1 py-2 text-center text-stone-500">
+                          {account.last_code ?? "—"}
+                        </td>
+                        <td className="px-1.5 py-2">
+                          <div className="flex items-center justify-center gap-0.5 text-stone-400">
                             <button
                               type="button"
-                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
+                              className="rounded-lg p-1.5 transition hover:bg-stone-100 hover:text-stone-700"
                               onClick={() => openEditDialog(account)}
                               disabled={isUpdating}
                             >
@@ -1211,7 +1280,7 @@ function AccountsPageContent() {
                             </button>
                             <button
                               type="button"
-                              className="rounded-lg p-2 transition hover:bg-stone-100 hover:text-stone-700"
+                              className="rounded-lg p-1.5 transition hover:bg-stone-100 hover:text-stone-700"
                               onClick={() => void handleRefreshAccounts([account.access_token])}
                               disabled={isRefreshing || refreshingTokens.has(account.access_token)}
                             >
@@ -1219,7 +1288,7 @@ function AccountsPageContent() {
                             </button>
                             <button
                               type="button"
-                              className="rounded-lg p-2 transition hover:bg-rose-50 hover:text-rose-500"
+                              className="rounded-lg p-1.5 transition hover:bg-rose-50 hover:text-rose-500"
                               onClick={() => void handleDeleteTokens([account.access_token])}
                               disabled={isDeleting}
                             >
