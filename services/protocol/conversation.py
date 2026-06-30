@@ -1241,17 +1241,17 @@ def _generate_single_image(
     实现并行生图，避免串行超时阻塞。
     """
     # 模型返回文本而非图片的最大重试次数
-    MAX_TEXT_REPLY_RETRIES = 3
+    MAX_TEXT_REPLY_RETRIES = 2
     # TLS 连接错误最大重试次数
-    MAX_TLS_RETRIES = 3
+    MAX_TLS_RETRIES = 2
     # 连接超时错误最大重试次数（同账号短等待重试）
-    MAX_CONN_TIMEOUT_RETRIES = 3
+    MAX_CONN_TIMEOUT_RETRIES = 2
     # 轮询超时错误最大重试次数（换账号重试）
-    MAX_POLL_TIMEOUT_RETRIES = 4
+    MAX_POLL_TIMEOUT_RETRIES = 2
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
-    MAX_CONTENT_POLICY_RETRIES = 3
+    MAX_CONTENT_POLICY_RETRIES = 2
     # SSE 读流错误最大换号重试次数
-    MAX_SSE_STREAM_RETRIES = 3
+    MAX_SSE_STREAM_RETRIES = 2
 
     text_reply_retry_count = 0
     tls_retry_count = 0
