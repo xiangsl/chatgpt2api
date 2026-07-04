@@ -1,0 +1,6 @@
+# 主机列表，一行一台
+# 格式: 主机|用户名|密码|目标文件夹
+# 以 # 开头的行为注释
+
+155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3001
+155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3002

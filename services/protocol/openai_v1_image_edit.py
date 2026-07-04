@@ -17,7 +17,17 @@ from services.protocol.openai_v1_image_generations import (
     normalize_collected_image_sizes,
     resolve_stream_image_outputs,
 )
-from utils.image_tokens import count_image_inputs_tokens, count_image_output_items_tokens, image_usage
+from utils.image_tokens import count_image_inputs_tokens, count_image_output_items_tokens, image_size_from_bytes, image_usage
+
+
+def _resolve_edit_size(size: object, images: list[tuple[bytes, str, str]]) -> object:
+    if str(size or "").strip().lower() not in {"", "auto"}:
+        return size
+    for data, _, _ in images:
+        actual_size = image_size_from_bytes(data)
+        if actual_size:
+            return f"{actual_size[0]}x{actual_size[1]}"
+    return size
 
 
 def _composite_mask(
@@ -58,7 +68,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     images = _composite_mask(images, masks)
     model = str(body.get("model") or "gpt-image-2")
     n = int(body.get("n") or 1)
-    size = body.get("size")
+    size = _resolve_edit_size(body.get("size"), images)
     quality = str(body.get("quality") or "auto")
     response_format = str(body.get("response_format") or "b64_json")
     base_url = str(body.get("base_url") or "") or None
