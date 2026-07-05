@@ -77,7 +77,10 @@ def fetch_user_info_clearance(access_token: str) -> dict[str, Any]:
         upstream=True,
     )
     api.session.headers.update({str(k): str(v) for k, v in headers.items()})
-    return api.get_user_info()
+    try:
+        return api.get_user_info()
+    finally:
+        api.close()
 
 
 def fetch_user_info_proxy(access_token: str, proxy: str) -> dict[str, Any]:
@@ -85,7 +88,10 @@ def fetch_user_info_proxy(access_token: str, proxy: str) -> dict[str, Any]:
 
     api = OpenAIBackendAPI(access_token)
     _rebuild_backend_session(api, proxy=str(proxy or "").strip(), upstream=True)
-    return api.get_user_info()
+    try:
+        return api.get_user_info()
+    finally:
+        api.close()
 
 
 def _log_egress_success(*, egress: str, token_hint: str, proxy: str = "") -> None:

@@ -169,14 +169,11 @@ def _strip_internal_response_fields(value: object) -> object:
     return value
 
 
-def _request_excerpt(text: object, limit: int = 1000) -> str:
+def _request_excerpt(text: object) -> str:
     value = str(text or "").strip()
     if not value:
         return ""
-    normalized = " ".join(value.split())
-    if len(normalized) <= limit:
-        return normalized
-    return normalized[: limit - 1].rstrip() + "…"
+    return " ".join(value.split())
 
 
 def _image_error_response(exc: Exception) -> JSONResponse:

@@ -704,15 +704,18 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
             attempted_tokens.add(token)
         try:
             active_backend = OpenAIBackendAPI(access_token=token)
-            for event in conversation_events(active_backend, messages=request.messages, model=request.model, prompt=request.prompt):
-                if event.get("type") != "conversation.delta":
-                    continue
-                delta = str(event.get("delta") or "")
-                if delta:
-                    emitted = True
-                    yield delta
-            account_service.mark_text_used(token)
-            return
+            try:
+                for event in conversation_events(active_backend, messages=request.messages, model=request.model, prompt=request.prompt):
+                    if event.get("type") != "conversation.delta":
+                        continue
+                    delta = str(event.get("delta") or "")
+                    if delta:
+                        emitted = True
+                        yield delta
+                account_service.mark_text_used(token)
+                return
+            finally:
+                active_backend.close()
         except Exception as exc:
             error_message = str(exc)
             if token and not emitted and is_token_invalid_error(error_message):
@@ -728,7 +731,12 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
 
 
 def collect_text(backend: OpenAIBackendAPI, request: ConversationRequest) -> str:
-    return "".join(stream_text_deltas(backend, request))
+    try:
+        return "".join(stream_text_deltas(backend, request))
+    finally:
+        close = getattr(backend, "close", None)
+        if callable(close):
+            close()
 
 
 def _get_detailed_error_from_tasks(
@@ -1241,15 +1249,15 @@ def _generate_single_image(
     实现并行生图，避免串行超时阻塞。
     """
     # 模型返回文本而非图片的最大重试次数
-    MAX_TEXT_REPLY_RETRIES = 2
+    MAX_TEXT_REPLY_RETRIES = 1
     # TLS 连接错误最大重试次数
     MAX_TLS_RETRIES = 2
     # 连接超时错误最大重试次数（同账号短等待重试）
-    MAX_CONN_TIMEOUT_RETRIES = 2
+    MAX_CONN_TIMEOUT_RETRIES = 1
     # 轮询超时错误最大重试次数（换账号重试）
-    MAX_POLL_TIMEOUT_RETRIES = 2
+    MAX_POLL_TIMEOUT_RETRIES = 1
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
-    MAX_CONTENT_POLICY_RETRIES = 2
+    MAX_CONTENT_POLICY_RETRIES = 1
     # SSE 读流错误最大换号重试次数
     MAX_SSE_STREAM_RETRIES = 2
 
@@ -1298,6 +1306,7 @@ def _generate_single_image(
             "account_found": bool(account),
             "index": index,
         })
+        backend = None
         try:
             backend = OpenAIBackendAPI(access_token=token)
             if request.progress_callback:
@@ -1522,6 +1531,8 @@ def _generate_single_image(
                 })
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
+            if backend is not None:
+                backend.close()
             if slot_acquired and token:
                 logger.warning({
                     "event": "image_slot_finally_release",

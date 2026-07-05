@@ -101,15 +101,20 @@ def stream_text_chat_completion(backend, messages: list[dict[str, Any]], model: 
     created = int(time.time())
     sent_role = False
     request = ConversationRequest(model=model, messages=messages)
-    for delta_text in stream_text_deltas(backend, request):
+    try:
+        for delta_text in stream_text_deltas(backend, request):
+            if not sent_role:
+                sent_role = True
+                yield completion_chunk(model, {"role": "assistant", "content": delta_text}, None, completion_id, created)
+            else:
+                yield completion_chunk(model, {"content": delta_text}, None, completion_id, created)
         if not sent_role:
-            sent_role = True
-            yield completion_chunk(model, {"role": "assistant", "content": delta_text}, None, completion_id, created)
-        else:
-            yield completion_chunk(model, {"content": delta_text}, None, completion_id, created)
-    if not sent_role:
-        yield completion_chunk(model, {"role": "assistant", "content": ""}, None, completion_id, created)
-    yield completion_chunk(model, {}, "stop", completion_id, created)
+            yield completion_chunk(model, {"role": "assistant", "content": ""}, None, completion_id, created)
+        yield completion_chunk(model, {}, "stop", completion_id, created)
+    finally:
+        close = getattr(backend, "close", None)
+        if callable(close):
+            close()
 
 
 def collect_chat_content(chunks: Iterable[dict[str, Any]]) -> str:

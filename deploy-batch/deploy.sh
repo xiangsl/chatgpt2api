@@ -42,6 +42,7 @@ hosts.txt 格式（一行一台，字段以 | 分隔）:
 目标文件夹末尾的数字将作为服务端口，例如:
   /root/chatgpt2api/chatgpt2api-3001  -> 端口 3001
   /root/chatgpt2api/chatgpt2api-3002  -> 端口 3002
+  /root/chatgpt2api/chatgpt2api-run    -> 默认端口 3001（单机单实例）
 
 打包镜像（在构建机执行）:
   docker save tydic:chatgpt2api -o chatgpt2api.tar
@@ -110,7 +111,12 @@ extract_port() {
         return 0
     fi
 
-    log_error "无法从目标目录提取端口（期望形如 .../chatgpt2api-3001）: ${target_dir}"
+    if [[ "$name" == *-run ]]; then
+        echo "3001"
+        return 0
+    fi
+
+    log_error "无法从目标目录提取端口（期望形如 .../chatgpt2api-3001 或 .../chatgpt2api-run）: ${target_dir}"
     return 1
 }
 

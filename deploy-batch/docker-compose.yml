@@ -105,6 +105,12 @@ services:
       nproc:
         soft: 65535
         hard: 65535
+    deploy:
+      resources:
+        limits:
+          memory: 5G
+        reservations:
+          memory: 5G
     environment:
       STORAGE_BACKEND: ${STORAGE_BACKEND:-json}
       DATABASE_URL: ${DATABASE_URL:-}
