@@ -20,7 +20,11 @@ def is_http_403_error(exc: BaseException) -> bool:
 def fetch_user_info_local(access_token: str) -> dict[str, Any]:
     from services.openai_backend_api import OpenAIBackendAPI
 
-    return OpenAIBackendAPI(access_token).get_user_info()
+    api = OpenAIBackendAPI(access_token)
+    try:
+        return api.get_user_info()
+    finally:
+        api.close()
 
 
 def _apply_clearance_bundle(session: requests.Session, bundle: ClearanceBundle | None) -> None:
