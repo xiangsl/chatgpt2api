@@ -102,5 +102,7 @@
       "enabled": true,
       "url": "https://canvas.best"
     }
-  }
+  },
+  "image_sse_timeout_secs": 120,
+  "image_inflight_timeout_secs": 600
 }
