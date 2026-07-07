@@ -1259,7 +1259,7 @@ def _generate_single_image(
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
     MAX_CONTENT_POLICY_RETRIES = 1
     # SSE 读流错误最大换号重试次数
-    MAX_SSE_STREAM_RETRIES = 1
+    MAX_SSE_STREAM_RETRIES = 0
 
     text_reply_retry_count = 0
     tls_retry_count = 0
