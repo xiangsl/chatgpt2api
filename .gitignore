@@ -35,4 +35,6 @@ logwithemailverifycode_*/
 test_batch_output/
 
 # 批量部署（含密码与镜像包，勿提交）
-deploy-batch/*
+deploy-batch/hosts*.txt
+deploy-batch/config.json
+deploy-batch/*.tar
