@@ -3,21 +3,21 @@
 # 以 # 开头的行为注释
 
 #st1号池
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3001
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3002
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3003
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3004
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3005
-23.175.144.101|user1|Abcd@19860202|/home/user1/chatgpt2api/chatgpt2api-3006
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3001
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3002
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3003
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3004
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3005
+23.175.144.101|user1|你的密码|/home/user1/chatgpt2api/chatgpt2api-3006
 #st2号池
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3001
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3002
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3003
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3004
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3005
-195.26.248.7|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3006
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3001
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3002
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3003
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3004
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3005
+195.26.248.7|root|你的密码|/root/chatgpt2api/chatgpt2api-3006
 #st3号池
-155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3001
-155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3002
-155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3003
-155.103.66.115|root|Abcd@19860202|/root/chatgpt2api/chatgpt2api-3004
+155.103.66.115|root|你的密码|/root/chatgpt2api/chatgpt2api-3001
+155.103.66.115|root|你的密码|/root/chatgpt2api/chatgpt2api-3002
+155.103.66.115|root|你的密码|/root/chatgpt2api/chatgpt2api-3003
+155.103.66.115|root|你的密码|/root/chatgpt2api/chatgpt2api-3004

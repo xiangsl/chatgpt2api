@@ -1,5 +1,5 @@
 {
-  "auth-key": "Abcd@19860202",
+  "auth-key": "你的密码",
   "refresh_account_interval_minute": 5,
   "full_refresh_account_interval_minute": 20,
   "if_write_image": 0,
