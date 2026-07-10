@@ -331,21 +331,62 @@ def _message_matches_email(data: dict[str, Any], email: str) -> bool:
     return not target or not candidates or any(target in str(item).strip().lower() for item in candidates if str(item).strip())
 
 
-def _extract_code(message: dict[str, Any]) -> str | None:
-    content = f"{message.get('subject', '')}\n{message.get('text_content', '')}\n{message.get('html_content', '')}".strip()
-    if not content:
-        return None
-    match = re.search(r"background-color:\s*#F3F3F3[^>]*>[\s\S]*?(\d{6})[\s\S]*?</p>", content, re.I)
-    if match:
+def _message_sender(message: dict[str, Any]) -> str:
+    return str(message.get("sender") or "").strip().lower()
+
+
+_OPENAI_OTP_PLACEHOLDER_CODE = "177010"
+
+
+def _is_openai_verification_message(message: dict[str, Any]) -> bool:
+    sender = _message_sender(message)
+    if "@" not in sender:
+        return False
+    domain = sender.rsplit("@", 1)[-1]
+    return domain == "openai.com" or domain.endswith(".openai.com")
+
+
+def _strip_urls(content: str) -> str:
+    return re.sub(r"https?://\S+", " ", content)
+
+
+def _extract_openai_code_from_content(html_content: str, text_content: str) -> str | None:
+    """Language-agnostic OpenAI OTP extraction based on HTML structure and isolated digits."""
+    html = str(html_content or "")
+    text = str(text_content or "")
+    for pattern in (
+        r"background-color:\s*#F3F3F3[^>]*>[\s\S]*?(\d{6})",
+        r"font-size:\s*28px[^>]*>[\s\S]*?(\d{6})",
+        r">\s*(\d{6})\s*<",
+    ):
+        match = re.search(pattern, html, re.I)
+        if match and match.group(1) != _OPENAI_OTP_PLACEHOLDER_CODE:
+            return match.group(1)
+    cleaned = _strip_urls(f"{html}\n{text}")
+    match = re.search(r"(?<!\d)(\d{6})(?!\d)", cleaned)
+    if match and match.group(1) != _OPENAI_OTP_PLACEHOLDER_CODE:
         return match.group(1)
-    match = re.search(r"(?:Verification code|code is|代码为|验证码)[:\s]*(\d{6})", content, re.I)
-    if match and match.group(1) != "177010":
-        return match.group(1)
-    for code in re.findall(r">\s*(\d{6})\s*<|(?<![#&])\b(\d{6})\b", content):
-        value = code[0] or code[1]
-        if value and value != "177010":
-            return value
     return None
+
+
+def _extract_code(message: dict[str, Any], *, require_openai: bool = False) -> str | None:
+    if require_openai and not _is_openai_verification_message(message):
+        return None
+    return _extract_openai_code_from_content(
+        str(message.get("html_content") or ""),
+        str(message.get("text_content") or ""),
+    )
+
+
+def _otp_baseline_refs(mailbox: dict[str, Any]) -> set[str]:
+    value = mailbox.get("_otp_baseline_refs")
+    if isinstance(value, (list, set, tuple)):
+        return {str(item) for item in value if str(item).strip()}
+    return set()
+
+
+def _is_skipped_otp_message(mailbox: dict[str, Any], ref: str, seen_refs: set[str]) -> bool:
+    return ref in _otp_baseline_refs(mailbox) or ref in seen_refs
 
 
 def _message_tracking_ref(message: dict[str, Any]) -> str:
@@ -379,6 +420,10 @@ class BaseMailProvider:
             time.sleep(max(0.2, self.conf["wait_interval"]))
         return None
 
+    def record_otp_baseline(self, mailbox: dict[str, Any]) -> None:
+        message = self.fetch_latest_message(mailbox)
+        mailbox["_otp_baseline_refs"] = [_message_tracking_ref(message)] if message else []
+
     def wait_for_code(self, mailbox: dict[str, Any]) -> str | None:
         seen_value = mailbox.setdefault("_seen_code_message_refs", [])
         if not isinstance(seen_value, list):
@@ -388,7 +433,7 @@ class BaseMailProvider:
 
         def extract_unseen_code(message: dict[str, Any]) -> str | None:
             ref = _message_tracking_ref(message)
-            if ref in seen_refs:
+            if _is_skipped_otp_message(mailbox, ref, seen_refs):
                 return None
             code = _extract_code(message)
             if code:
@@ -1338,6 +1383,9 @@ class OutlookTokenProvider(BaseMailProvider):
         messages = self.fetch_recent_messages(mailbox)
         return messages[0] if messages else None
 
+    def record_otp_baseline(self, mailbox: dict[str, Any]) -> None:
+        mailbox["_otp_baseline_refs"] = [_message_tracking_ref(message) for message in self.fetch_recent_messages(mailbox)]
+
     def wait_for_code(self, mailbox: dict[str, Any]) -> str | None:
         """轮询时遍历最近 N 封邮件，逐封提取验证码，避免最新一封是广告/安全提醒时错过验证码。"""
         seen_value = mailbox.setdefault("_seen_code_message_refs", [])
@@ -1350,9 +1398,9 @@ class OutlookTokenProvider(BaseMailProvider):
         while time.monotonic() < deadline:
             for message in self.fetch_recent_messages(mailbox):
                 ref = _message_tracking_ref(message)
-                if ref in seen_refs:
+                if _is_skipped_otp_message(mailbox, ref, seen_refs):
                     continue
-                code = _extract_code(message)
+                code = _extract_code(message, require_openai=True)
                 if code:
                     seen_value.append(ref)
                     return code
@@ -1439,6 +1487,14 @@ def create_mailbox(mail_config: dict, username: str | None = None) -> dict:
         finally:
             provider.close()
     raise RuntimeError(last_error or "所有启用的邮箱提供商均无法创建邮箱")
+
+
+def record_mailbox_baseline(mail_config: dict, mailbox: dict) -> None:
+    provider = _create_provider(mail_config, str(mailbox.get("provider") or ""), str(mailbox.get("provider_ref") or ""))
+    try:
+        provider.record_otp_baseline(mailbox)
+    finally:
+        provider.close()
 
 
 def wait_for_code(mail_config: dict, mailbox: dict) -> str | None:

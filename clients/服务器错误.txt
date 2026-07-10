@@ -16,3 +16,6 @@ Create a clean S4 storyboard sheet for 《玄霜剑劫》 EP1 group 1. Output: o
 
 
 04:58:31任务1 注册失败，本次耗时5.5s，原因: create_account_http_400, detail={"error": {"message": "Sorry, we cannot create your account with the given information.", "type": "invalid_request_error", "param": null, "code": "registration_disallowed"}}
+
+
+status_code=502, upstream image stream timed out, please retry later

@@ -285,12 +285,18 @@ def wait_for_code(mailbox: dict) -> str | None:
     return mail_provider.wait_for_code(_mail_config(), mailbox)
 
 
+def record_mailbox_baseline(mailbox: dict) -> None:
+    mail_provider.record_mailbox_baseline(_mail_config(), mailbox)
+
+
 from utils.sentinel import SentinelTokenGenerator, build_sentinel_token as _build_sentinel_token_tuple  # noqa: F401
 
 
 def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -> str:
     """请求 sentinel token，返回 sentinel header 字符串（兼容旧接口）。"""
-    sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(session, device_id, flow, user_agent=user_agent, sec_ch_ua=sec_ch_ua)
+    sentinel_val, oai_sc_val = _build_sentinel_token_tuple(session, device_id, flow, user_agent=user_agent, sec_ch_ua=sec_ch_ua)
+    if oai_sc_val:
+        session.cookies.set("oai-sc", oai_sc_val, domain=".openai.com")
     return sentinel_val
 
 
@@ -602,6 +608,32 @@ class PlatformRegistrar:
             raise RuntimeError(error or f"validate_otp_http_{getattr(resp, 'status_code', 'unknown')}_body={body}")
         step(index, "验证码校验完成")
 
+    def _visit_about_you(self, index: int) -> None:
+        """OTP 校验后先访问 about-you 页面，与浏览器注册流程对齐。"""
+        url = f"{auth_base}/about-you"
+        headers = _headers_with_clearance(
+            self._navigate_headers(f"{auth_base}/email-verification"),
+            url,
+            self.proxy,
+            self.clearance_user_agent,
+        )
+        resp, error = request_with_local_retry(self.session, "get", url, headers=headers, allow_redirects=True, verify=False)
+        if _is_cloudflare_challenge(resp):
+            bundle = self._refresh_cloudflare_clearance(auth_base, index)
+            if bundle is None:
+                raise RuntimeError(_cloudflare_block_message(resp, reason=self.clearance_failure_reason))
+            headers = _headers_with_clearance(
+                self._navigate_headers(f"{auth_base}/email-verification"),
+                url,
+                self.proxy,
+                self.clearance_user_agent,
+            )
+            resp, error = request_with_local_retry(self.session, "get", url, headers=headers, allow_redirects=True, verify=False)
+            if _is_cloudflare_challenge(resp):
+                raise RuntimeError(_cloudflare_block_message(resp, "Cloudflare clearance 重试仍被拦截"))
+        if resp is None or resp.status_code not in (200, 302):
+            raise RuntimeError(error or f"about_you_http_{getattr(resp, 'status_code', 'unknown')}")
+
     def _create_account(self, name: str, birthdate: str, index: int) -> None:
         step(index, "开始创建账号资料")
         url = f"{auth_base}/api/accounts/create_account"
@@ -621,8 +653,16 @@ class PlatformRegistrar:
                 raise RuntimeError(_cloudflare_block_message(resp, "Cloudflare clearance 重试仍被拦截"))
         if resp is None or resp.status_code not in (200, 302):
             data = _response_json(resp) if resp is not None else {}
-            if data.get("message") == "Failed to create account. Please try again.":
-                step(index, "创建账号失败提示: 邮箱域名很可能因滥用被封禁，请更换邮箱域名", "yellow")
+            err = data.get("error") if isinstance(data.get("error"), dict) else {}
+            err_code = str(err.get("code") or data.get("code") or "").strip()
+            if data.get("message") == "Failed to create account. Please try again." or err_code == "registration_disallowed":
+                step(
+                    index,
+                    "创建账号失败提示: OpenAI 风控拒绝注册（registration_disallowed），"
+                    "常见原因：@outlook.com/@hotmail.com 批量邮箱、代理 IP 信誉差、并发过高；"
+                    "建议换 tempmail 域名、降低 threads、更换代理或改走 Microsoft OAuth",
+                    "yellow",
+                )
             detail = f", detail={json.dumps(data, ensure_ascii=False)}" if data else ""
             raise RuntimeError(error or f"create_account_http_{getattr(resp, 'status_code', 'unknown')}{detail}")
         data = _response_json(resp)
@@ -658,6 +698,7 @@ class PlatformRegistrar:
             self._open_openai_session(proxy)
             self._platform_authorize(email, index)
             self._register_user(email, password, index)
+            record_mailbox_baseline(mailbox)
             self._send_otp(index)
             step(index, "开始等待注册验证码")
             code = wait_for_code(mailbox)
@@ -665,6 +706,7 @@ class PlatformRegistrar:
                 raise RuntimeError("等待注册验证码超时")
             step(index, f"收到注册验证码: {code}")
             self._validate_otp(code, index)
+            self._visit_about_you(index)
             self._create_account(f"{first_name} {last_name}", _random_birthdate(), index)
             tokens = self._exchange_registered_tokens(index)
         except Exception as error:
@@ -725,6 +767,9 @@ def worker(index: int) -> dict:
                 record_openai_cloudflare_failure()
             step(index, error_msg+"，线程休息 5s", "yellow")
             time.sleep(10)
+        if "registration_disallowed" in error_msg:
+            step(index, "OpenAI 风控拒绝最终建号，线程休息 15s", "yellow")
+            time.sleep(15)
         return {"ok": False, "index": index, "error": error_msg}
     finally:
         registrar.close()
