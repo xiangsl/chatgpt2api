@@ -50,6 +50,16 @@ class AccountCreateRequest(BaseModel):
     accounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AccessTokenImportRequest(BaseModel):
+    access_token: str = ""
+    tokens: list[str] = Field(default_factory=list)
+
+
+class SessionJsonImportRequest(BaseModel):
+    session: dict[str, Any] | None = None
+    session_json: str = ""
+
+
 class AccountDeleteRequest(BaseModel):
     tokens: list[str] = Field(default_factory=list)
 
@@ -126,6 +136,27 @@ def _account_payload_token(item: dict[str, Any]) -> str:
 
 def _unique_tokens(tokens: list[str]) -> list[str]:
     return list(dict.fromkeys(str(token or "").strip() for token in tokens if str(token or "").strip()))
+
+
+def _extract_session_access_token(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    token = value.get("accessToken") or value.get("access_token") or ""
+    return str(token).strip()
+
+
+def _import_access_tokens(tokens: list[str]) -> dict[str, Any]:
+    normalized = _unique_tokens(tokens)
+    if not normalized:
+        raise HTTPException(status_code=400, detail={"error": "access_token or tokens is required"})
+    result = account_service.add_accounts(normalized)
+    refresh_result = account_service.refresh_accounts(normalized)
+    return {
+        **result,
+        "refreshed": refresh_result.get("refreshed", 0),
+        "errors": refresh_result.get("errors", []),
+        "items": refresh_result.get("items", result.get("items", [])),
+    }
 
 
 def _download_timestamp() -> str:
@@ -212,6 +243,16 @@ def create_router() -> APIRouter:
         require_admin(authorization)
         return {"items": account_service.list_accounts()}
 
+    @router.get("/api/accounts/stats/normal")
+    async def get_normal_account_stats(authorization: str | None = Header(default=None)):
+        """Return the count and total image quota of accounts with status 正常."""
+        require_admin(authorization)
+        stats = account_service.get_stats()
+        return {
+            "active_count": stats["active"],
+            "total_quota": stats["total_quota"],
+        }
+
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
@@ -237,6 +278,31 @@ def create_router() -> APIRouter:
             "errors": refresh_result.get("errors", []),
             "items": refresh_result.get("items", result.get("items", [])),
         }
+
+    @router.post("/api/accounts/import/access-token")
+    async def import_access_token(body: AccessTokenImportRequest, authorization: str | None = Header(default=None)):
+        """Import one or more accounts by Access Token, matching the web UI import flow."""
+        require_admin(authorization)
+        tokens = _unique_tokens([body.access_token, *body.tokens])
+        return _import_access_tokens(tokens)
+
+    @router.post("/api/accounts/import/session-json")
+    async def import_session_json(body: SessionJsonImportRequest, authorization: str | None = Header(default=None)):
+        """Import an account from ChatGPT session JSON, extracting accessToken on the server."""
+        require_admin(authorization)
+        session_payload: Any = body.session
+        if session_payload is None:
+            raw = str(body.session_json or "").strip()
+            if not raw:
+                raise HTTPException(status_code=400, detail={"error": "session or session_json is required"})
+            try:
+                session_payload = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail={"error": "session_json is invalid JSON"}) from exc
+        token = _extract_session_access_token(session_payload)
+        if not token:
+            raise HTTPException(status_code=400, detail={"error": "accessToken not found in session JSON"})
+        return _import_access_tokens([token])
 
     @router.delete("/api/accounts")
     async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, FileArchive, FileText, KeyRound, ListChecks, type LucideIcon } from "lucide-react";
+import { ChevronDown, FileArchive, FileJson, FileText, KeyRound, ListChecks, type LucideIcon } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import webConfig from "@/constants/common-env";
@@ -213,6 +213,65 @@ const docs: ApiDoc[] = [
     ],
     example: (baseUrl: string, _key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/files/<file_path> -o result.zip`,
   },
+  {
+    title: "Access Token 导入",
+    method: "POST",
+    path: "/api/accounts/import/access-token",
+    icon: KeyRound,
+    input: [
+      ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
+      ["access_token", "string", "可选，单个 Access Token。"],
+      ["tokens", "string[]", "可选，批量 Access Token 列表；可与 access_token 同时传。"],
+    ],
+    output: [
+      ["added", "number", "新增账号数量。"],
+      ["skipped", "number", "已存在而跳过的数量。"],
+      ["refreshed", "number", "导入后成功刷新的账号数量。"],
+      ["errors", "array", "刷新失败项及错误信息。"],
+      ["items", "array", "当前账号列表。"],
+    ],
+    example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/accounts/import/access-token \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"access_token":"<your-access-token>"}'`,
+  },
+  {
+    title: "Session JSON 导入",
+    method: "POST",
+    path: "/api/accounts/import/session-json",
+    icon: FileJson,
+    input: [
+      ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
+      ["session", "object", "可选，从 chatgpt.com/api/auth/session 复制的完整 JSON 对象。"],
+      ["session_json", "string", "可选，Session JSON 原始字符串；与 session 二选一。"],
+    ],
+    output: [
+      ["added", "number", "新增账号数量。"],
+      ["skipped", "number", "已存在而跳过的数量。"],
+      ["refreshed", "number", "导入后成功刷新的账号数量。"],
+      ["errors", "array", "刷新失败项及错误信息。"],
+      ["items", "array", "当前账号列表。"],
+    ],
+    example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/accounts/import/session-json \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"session":{"accessToken":"<your-access-token>"}}'`,
+  },
+  {
+    title: "正常账号统计",
+    method: "GET",
+    path: "/api/accounts/stats/normal",
+    icon: ListChecks,
+    input: [
+      ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
+    ],
+    output: [
+      ["active_count", "number", "当前状态为「正常」的账号数量。"],
+      ["total_quota", "number", "所有正常账号的剩余图片额度总和。"],
+    ],
+    example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/accounts/stats/normal \\
+  -H "Authorization: Bearer ${key}"`,
+  },
 ];
 
 const usableModels = ["gpt-image-2", "codex-gpt-image-2", "auto", "gpt-5", "gpt-5-1", "gpt-5-2", "gpt-5-3", "gpt-5-3-mini", "gpt-5-mini"];
@@ -267,7 +326,7 @@ export function ApiDocsCard() {
             接口接入说明
           </div>
           <p className="mt-1 text-xs leading-6 text-stone-500">
-            第三方应用按 OpenAI 兼容接口接入；文件任务接口也使用同一套鉴权方式。
+            第三方应用按 OpenAI 兼容接口接入；文件任务与账号导入接口也使用同一套 Bearer 鉴权，账号导入需管理员密钥。
           </p>
         </div>
 
