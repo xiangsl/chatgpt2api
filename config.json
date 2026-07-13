@@ -5,13 +5,19 @@
   "if_write_image": 0,
   "image_retention_days": 0.5,
   "image_poll_timeout_secs": 240,
-  "auto_remove_rate_limited_accounts": true,
+  "auto_remove_rate_limited_accounts": false,
   "auto_remove_invalid_accounts": true,
   "log_levels": [
     "warning",
-    "error"
+    "error",
+    "debug",
+    "info"
   ],
-  "proxy": "",
+  "proxy": {
+    "url": "",
+    "interval_secs": 2,
+    "rounds": 3
+  },
   "proxy_runtime": {
     "enabled": false,
     "egress_mode": "single_proxy",

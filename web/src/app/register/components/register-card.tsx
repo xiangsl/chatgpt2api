@@ -17,7 +17,6 @@ export function RegisterCard() {
   const isSaving = useSettingsStore((state) => state.isSavingRegister);
   const setProxy = useSettingsStore((state) => state.setRegisterProxy);
   const setAlwaysUseOpenaiProxy = useSettingsStore((state) => state.setRegisterAlwaysUseOpenaiProxy);
-  const setAlwaysUseFetchRemoteInfoProxy = useSettingsStore((state) => state.setRegisterAlwaysUseFetchRemoteInfoProxy);
   const setTotal = useSettingsStore((state) => state.setRegisterTotal);
   const setThreads = useSettingsStore((state) => state.setRegisterThreads);
   const setMode = useSettingsStore((state) => state.setRegisterMode);
@@ -116,12 +115,6 @@ export function RegisterCard() {
               <label className="flex items-center gap-3 text-sm text-stone-700">
                 <Checkbox checked={Boolean(config.always_use_openai_proxy)} onCheckedChange={(checked) => setAlwaysUseOpenaiProxy(Boolean(checked))} disabled={config.enabled} />
                 OpenAI 始终走代理
-              </label>
-            </div>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 text-sm text-stone-700">
-                <Checkbox checked={Boolean(config.always_use_fetch_remote_info_proxy)} onCheckedChange={(checked) => setAlwaysUseFetchRemoteInfoProxy(Boolean(checked))} disabled={config.enabled} />
-                账号远程信息始终走代理
               </label>
             </div>
             <div className="space-y-2">

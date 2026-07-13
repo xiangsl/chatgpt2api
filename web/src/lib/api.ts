@@ -156,8 +156,14 @@ export type ThirdPartyAppsSettings = {
   };
 };
 
+export type GlobalProxySettings = {
+  url: string;
+  interval_secs: number;
+  rounds: number;
+};
+
 export type SettingsConfig = {
-  proxy: string;
+  proxy: GlobalProxySettings;
   base_url?: string;
   global_system_prompt?: string;
   sensitive_words?: string[];

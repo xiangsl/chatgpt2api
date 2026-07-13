@@ -34,6 +34,7 @@ export function ConfigCard() {
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
+  const setProxyField = useSettingsStore((state) => state.setProxyField);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
   const setGlobalSystemPrompt = useSettingsStore((state) => state.setGlobalSystemPrompt);
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
@@ -46,7 +47,7 @@ export function ConfigCard() {
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
   const handleTestProxy = async () => {
-    const candidate = String(config?.proxy || "").trim();
+    const candidate = String(config?.proxy?.url || "").trim();
     if (!candidate) {
       toast.error("请先填写代理地址");
       return;
@@ -98,7 +99,7 @@ export function ConfigCard() {
           <div className="space-y-2">
             <label className="text-sm text-stone-700">全局代理</label>
             <Input
-              value={String(config?.proxy || "")}
+              value={String(config?.proxy?.url || "")}
               onChange={(event) => {
                 setProxy(event.target.value);
                 setProxyTestResult(null);
@@ -107,8 +108,29 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs leading-5 text-stone-500">
-              留空表示不使用代理。支持协议://账号:密码@主机:端口，也可直接粘贴代理商的 主机:端口:账号:密码；示例 http://user:pass@127.0.0.1:7890、127.0.0.1:7890:user:pass。账号密码含 @/: 等特殊字符时需 URL 编码。
+              留空表示不使用代理。支持 http/https/socks5。示例 http://user:pass@127.0.0.1:7890、socks5://127.0.0.1:1080；也可粘贴 主机:端口:账号:密码。账号密码含 @/: 时需 URL 编码。GPT 上游无账号代理时走此代理；图片下载/上传直连。
             </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs text-stone-600">超时重连间隔（秒）</label>
+                <Input
+                  value={String(config?.proxy?.interval_secs ?? 2)}
+                  onChange={(event) => setProxyField("interval_secs", event.target.value)}
+                  placeholder="2"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-stone-600">重连轮数</label>
+                <Input
+                  value={String(config?.proxy?.rounds ?? 3)}
+                  onChange={(event) => setProxyField("rounds", event.target.value)}
+                  placeholder="3"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-stone-500">代理超时或连接失败时按间隔重连，写入 config.json 的 proxy.interval_secs / proxy.rounds。</p>
             {proxyTestResult ? (
               <div
                 className={`rounded-xl border px-3 py-2 text-xs leading-6 ${

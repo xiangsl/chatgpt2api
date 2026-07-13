@@ -645,4 +645,95 @@ def test_clearance(target_url: str = "https://chatgpt.com") -> dict:
     }
 
 
+def _is_retryable_proxy_error(exc: BaseException) -> bool:
+    name = exc.__class__.__name__.lower()
+    message = str(exc or "").lower()
+    markers = (
+        "timeout",
+        "timed out",
+        "time out",
+        "curl: (28)",
+        "curl: (7)",
+        "curl: (35)",
+        "curl: (56)",
+        "proxy error",
+        "tunnel connection failed",
+        "connection refused",
+        "connection reset",
+        "failed to connect",
+        "network is unreachable",
+        "temporarily unavailable",
+    )
+    return any(marker in name or marker in message for marker in markers)
+
+
+def request_with_proxy_retry(session: Session, method: str, url: str, **kwargs):
+    """Issue an HTTP request and reconnect on proxy timeout/connection errors."""
+    retry = config.get_proxy_retry_settings()
+    rounds = max(1, int(retry.get("rounds") or 1))
+    interval_secs = max(0.0, float(retry.get("interval_secs") or 0))
+    last_error: BaseException | None = None
+    for attempt in range(1, rounds + 1):
+        try:
+            return session.request(method, url, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            if attempt >= rounds or not _is_retryable_proxy_error(exc):
+                raise
+            if interval_secs > 0:
+                time.sleep(interval_secs)
+    assert last_error is not None
+    raise last_error
+
+
+class ProxyRetrySession:
+    """Thin session wrapper that retries proxy timeout/connection failures."""
+
+    def __init__(self, session: Session, *, enabled: bool = True) -> None:
+        self._session = session
+        self._enabled = bool(enabled)
+
+    @property
+    def raw(self) -> Session:
+        return self._session
+
+    def __getattr__(self, name: str):
+        return getattr(self._session, name)
+
+    def request(self, method: str, url: str, **kwargs):
+        if not self._enabled:
+            return self._session.request(method, url, **kwargs)
+        return request_with_proxy_retry(self._session, method, url, **kwargs)
+
+    def get(self, url: str, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def put(self, url: str, **kwargs):
+        return self.request("PUT", url, **kwargs)
+
+    def delete(self, url: str, **kwargs):
+        return self.request("DELETE", url, **kwargs)
+
+    def head(self, url: str, **kwargs):
+        return self.request("HEAD", url, **kwargs)
+
+    def patch(self, url: str, **kwargs):
+        return self.request("PATCH", url, **kwargs)
+
+    def close(self) -> None:
+        self._session.close()
+
+
+def wrap_session_with_proxy_retry(session: Session, *, enabled: bool | None = None) -> ProxyRetrySession:
+    if enabled is None:
+        enabled = bool(getattr(session, "proxies", None) or getattr(session, "proxy", None))
+        if not enabled:
+            # curl_cffi stores proxy on the Session via constructor kwargs, not always as attribute.
+            enabled = False
+    return ProxyRetrySession(session, enabled=bool(enabled))
+
+
 proxy_settings = ProxySettingsStore()

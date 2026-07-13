@@ -21,7 +21,7 @@ from PIL import Image
 
 from services.account_service import account_service
 from services.config import config
-from services.proxy_service import proxy_settings
+from services.proxy_service import proxy_settings, wrap_session_with_proxy_retry
 from services.register.account_fp import REGISTER_BACKEND_FP_DEFAULTS
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
 from utils.log import logger
@@ -192,24 +192,47 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
-        self.session = requests.Session(**proxy_settings.build_session_kwargs(
+        session_kwargs = proxy_settings.build_session_kwargs(
             account=self.account,
             impersonate=self.fp["impersonate"],
             verify=True,
-        ))
+        )
+        # GPT 上游：账号代理 > 全局代理；图片大流量走直连 resource_session。
+        self.session = wrap_session_with_proxy_retry(
+            requests.Session(**session_kwargs),
+            enabled=bool(session_kwargs.get("proxy")),
+        )
+        self.resource_session = requests.Session(impersonate=self.fp["impersonate"], verify=True)
         self.session.headers.update(self._build_session_headers())
         if self.access_token:
             self.session.headers["Authorization"] = f"Bearer {self.access_token}"
 
     def close(self) -> None:
         session = getattr(self, "session", None)
-        if session is None:
-            return
+        resource_session = getattr(self, "resource_session", None)
         self.session = None
-        try:
-            session.close()
-        except Exception:
-            pass
+        self.resource_session = None
+        for candidate in (session, resource_session):
+            if candidate is None:
+                continue
+            try:
+                candidate.close()
+            except Exception:
+                pass
+
+    def _resource_get(self, url: str, timeout: float):
+        """直连下载资源；chatgpt/openai 域名补鉴权头，避免 estuary 403，且不走代理。"""
+        host = (urlparse(url).hostname or "").lower()
+        if host.endswith("chatgpt.com") or host.endswith("openai.com"):
+            path = urlparse(url).path or "/"
+            headers = dict(self._build_session_headers())
+            headers["Accept"] = "*/*"
+            headers["X-OpenAI-Target-Path"] = path
+            headers["X-OpenAI-Target-Route"] = path
+            if self.access_token:
+                headers["Authorization"] = f"Bearer {self.access_token}"
+            return self.resource_session.get(url, headers=headers, timeout=timeout)
+        return self.resource_session.get(url, timeout=timeout)
 
     def _build_fp(self) -> Dict[str, str]:
         account = self.account
@@ -916,7 +939,7 @@ class OpenAIBackendAPI:
         )
         ensure_ok(response, path)
         upload_meta = response.json()
-        response = self.session.put(
+        response = self.resource_session.put(
             upload_meta["upload_url"],
             headers={
                 "Content-Type": mime_type,
@@ -1242,7 +1265,7 @@ class OpenAIBackendAPI:
         file_id = str(payload.get("file_id") or "")
         if not upload_url or not file_id:
             raise RuntimeError(f"invalid upload response: {payload}")
-        response = self.session.put(
+        response = self.resource_session.put(
             upload_url,
             headers={
                 "Content-Type": mime_type,
@@ -1549,7 +1572,7 @@ class OpenAIBackendAPI:
         download_url = self._resolve_editable_download_url(conversation_id, artifact)
         if not download_url:
             raise RuntimeError(f"download url not found for artifact: {artifact}")
-        response = self.session.get(download_url, timeout=300)
+        response = self._resource_get(download_url, timeout=300)
         ensure_ok(response, "artifact_download")
         content_type = self._clean_editable_mime_type(response.headers.get("Content-Type") or artifact.mime_type)
         file_name = self._resolve_editable_output_name(artifact, response.url, response.headers.get("Content-Disposition"), content_type, primary_mime_types, primary_mime_keywords, primary_default_extension)
@@ -2508,7 +2531,7 @@ class OpenAIBackendAPI:
     def download_image_bytes(self, urls: list[str]) -> list[bytes]:
         images = []
         for url in urls:
-            response = self.session.get(url, timeout=120)
+            response = self._resource_get(url, timeout=120)
             ensure_ok(response, "image_download")
             if response.content not in images:
                 images.append(response.content)

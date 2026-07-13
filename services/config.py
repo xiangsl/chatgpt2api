@@ -76,6 +76,12 @@ DEFAULT_PROXY_RUNTIME = {
     },
 }
 
+DEFAULT_PROXY = {
+    "url": "",
+    "interval_secs": 2,
+    "rounds": 3,
+}
+
 DEFAULT_THIRD_PARTY_APPS = {
     "infinite_canvas": {
         "enabled": False,
@@ -214,6 +220,23 @@ def _normalize_status_codes(value: object) -> list[int]:
     if not normalized:
         return list(DEFAULT_PROXY_RUNTIME["reset_session_status_codes"])
     return normalized
+
+
+def _normalize_proxy_settings(value: object) -> dict[str, object]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "url": str(source.get("url") or "").strip(),
+        "interval_secs": _normalize_positive_int(
+            source.get("interval_secs"),
+            int(DEFAULT_PROXY["interval_secs"]),
+            minimum=0,
+        ),
+        "rounds": _normalize_positive_int(
+            source.get("rounds"),
+            int(DEFAULT_PROXY["rounds"]),
+            minimum=1,
+        ),
+    }
 
 
 def _normalize_proxy_runtime_settings(value: object) -> dict[str, object]:
@@ -588,13 +611,24 @@ class ConfigStore:
         data["backup"] = self.get_backup_settings()
         data["image_storage"] = self.get_image_storage_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
+        data["proxy"] = self.get_proxy_config()
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
         data["third_party_apps"] = self.get_third_party_apps_settings()
         data.pop("auth-key", None)
         return data
 
+    def get_proxy_config(self) -> dict[str, object]:
+        return _normalize_proxy_settings(self.data.get("proxy"))
+
     def get_proxy_settings(self) -> str:
-        return str(self.data.get("proxy") or "").strip()
+        return str(self.get_proxy_config().get("url") or "").strip()
+
+    def get_proxy_retry_settings(self) -> dict[str, object]:
+        proxy = self.get_proxy_config()
+        return {
+            "interval_secs": proxy["interval_secs"],
+            "rounds": proxy["rounds"],
+        }
 
     def get_proxy_runtime_settings(self) -> dict[str, object]:
         return _normalize_proxy_runtime_settings(self.data.get("proxy_runtime"))
@@ -637,6 +671,8 @@ class ConfigStore:
                     incoming_runtime["_existing_cf_cookies"] = previous_clearance.get("cf_cookies")
                     incoming_runtime["_existing_cf_clearance"] = previous_clearance.get("cf_clearance")
             next_data["proxy_runtime"] = _normalize_proxy_runtime_settings(incoming_runtime)
+        if "proxy" in (data or {}):
+            next_data["proxy"] = _normalize_proxy_settings(next_data.get("proxy"))
         next_data.pop("backup_state", None)
         self.data = next_data
         self._save()

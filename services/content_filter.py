@@ -6,7 +6,6 @@ from curl_cffi import requests
 from fastapi import HTTPException
 
 from services.config import config
-from services.proxy_service import proxy_settings
 from utils.log import logger
 
 DEFAULT_REVIEW_PROMPT = "判断用户请求是否允许。只回答 ALLOW 或 REJECT。"
@@ -195,7 +194,6 @@ def check_request(text: str) -> None:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={"model": model, "messages": [{"role": "user", "content": content}], "temperature": 0},
             timeout=60,
-            **proxy_settings.build_session_kwargs(),
         )
     except Exception as exc:
         _on_failure({

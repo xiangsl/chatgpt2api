@@ -185,7 +185,7 @@ export function TopNav() {
               href="/image"
               className="shrink-0 py-1 text-[15px] font-bold tracking-tight text-stone-950 transition hover:text-stone-700 dark:text-stone-50 dark:hover:text-white"
             >
-              先知画图-0.2.3
+              先知画图-1.0.0
             </Link>
             <HeaderActions className="ml-auto sm:hidden" showGithubText={false} />
           </div>

@@ -14,8 +14,6 @@ from fastapi import HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from services.proxy_service import proxy_settings
-
 ImageInput = tuple[bytes, str, str]
 ImageSource = str | UploadFile | ImageInput
 
@@ -269,7 +267,6 @@ def _download_image_url(url: str) -> ImageInput:
             headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "chatgpt2api image fetcher"},
             timeout=60,
             allow_redirects=True,
-            **proxy_settings.build_session_kwargs(),
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc

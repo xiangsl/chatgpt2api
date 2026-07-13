@@ -307,7 +307,12 @@ def create_session(proxy: str = "") -> Any:
         impersonate="chrome",
         verify=False,
     )
-    return requests.Session(**kwargs)
+    from services.proxy_service import wrap_session_with_proxy_retry
+
+    return wrap_session_with_proxy_retry(
+        requests.Session(**kwargs),
+        enabled=bool(kwargs.get("proxy")),
+    )
 
 
 def _apply_clearance_to_session(session: requests.Session, bundle: ClearanceBundle | None) -> None:

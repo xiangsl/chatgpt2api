@@ -12,7 +12,9 @@ from services.proxy_service import (
     ClearanceBundle,
     FlareSolverrClearanceProvider,
     ProxySettingsStore,
+    _is_retryable_proxy_error,
     normalize_proxy_url,
+    request_with_proxy_retry,
 )
 
 
@@ -409,6 +411,49 @@ class ProxyServiceTests(unittest.TestCase):
         self.assertEqual(provider.calls, 1)
         self.assertTrue(all(result is results[0] for result in results))
         self.assertIsNotNone(results[0])
+
+
+class ProxyRetryTests(unittest.TestCase):
+    def test_is_retryable_proxy_error_detects_timeouts(self) -> None:
+        self.assertTrue(_is_retryable_proxy_error(TimeoutError("proxy timed out")))
+        self.assertTrue(_is_retryable_proxy_error(RuntimeError("curl: (28) Operation timed out")))
+        self.assertFalse(_is_retryable_proxy_error(RuntimeError("HTTP 500")))
+
+    def test_request_with_proxy_retry_retries_then_succeeds(self) -> None:
+        calls = {"count": 0}
+
+        class FakeSession:
+            def request(self, method: str, url: str, **kwargs: object) -> dict[str, object]:
+                calls["count"] += 1
+                if calls["count"] < 3:
+                    raise TimeoutError("proxy timed out")
+                return {"ok": True, "method": method, "url": url}
+
+        with patch(
+            "services.proxy_service.config.get_proxy_retry_settings",
+            return_value={"interval_secs": 0, "rounds": 3},
+        ):
+            result = request_with_proxy_retry(FakeSession(), "GET", "https://chatgpt.com")
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(calls["count"], 3)
+
+    def test_request_with_proxy_retry_stops_on_non_retryable(self) -> None:
+        calls = {"count": 0}
+
+        class FakeSession:
+            def request(self, method: str, url: str, **kwargs: object) -> dict[str, object]:
+                calls["count"] += 1
+                raise RuntimeError("HTTP 500 upstream")
+
+        with patch(
+            "services.proxy_service.config.get_proxy_retry_settings",
+            return_value={"interval_secs": 0, "rounds": 3},
+        ):
+            with self.assertRaises(RuntimeError):
+                request_with_proxy_retry(FakeSession(), "GET", "https://chatgpt.com")
+
+        self.assertEqual(calls["count"], 1)
 
 
 if __name__ == "__main__":

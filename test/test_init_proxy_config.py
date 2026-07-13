@@ -24,7 +24,10 @@ class InitProxyConfigTests(unittest.TestCase):
         module = load_script_module()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
-            path.write_text(json.dumps({"auth-key": "secret", "proxy": ""}), encoding="utf-8")
+            path.write_text(
+                json.dumps({"auth-key": "secret", "proxy": {"url": "", "interval_secs": 2, "rounds": 3}}),
+                encoding="utf-8",
+            )
             with patch.dict(os.environ, {"CHATGPT2API_CONFIG_FILE": str(path)}, clear=False):
                 self.assertEqual(module.main(), 0)
 
@@ -96,7 +99,10 @@ class InitProxyConfigTests(unittest.TestCase):
         module = load_script_module()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
-            path.write_text(json.dumps({"auth-key": "secret", "proxy": ""}), encoding="utf-8")
+            path.write_text(
+                json.dumps({"auth-key": "secret", "proxy": {"url": "", "interval_secs": 2, "rounds": 3}}),
+                encoding="utf-8",
+            )
             original_replace = Path.replace
 
             def replace_with_ebusy(self: Path, target: Path) -> Path:

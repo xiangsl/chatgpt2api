@@ -6,9 +6,11 @@ import unittest
 from pathlib import Path
 
 from services.config import (
+    DEFAULT_PROXY,
     DEFAULT_PROXY_RUNTIME,
     ConfigStore,
     _normalize_proxy_runtime_settings,
+    _normalize_proxy_settings,
 )
 
 
@@ -23,18 +25,21 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
         return tmp_dir, ConfigStore(path)
 
     def test_defaults_are_safe_and_included_in_public_config(self) -> None:
-        tmp_dir, store = self._make_store({"proxy": " http://legacy.example:8080 "})
+        tmp_dir, store = self._make_store({"proxy": {"url": " http://proxy.example:8080 ", "interval_secs": 2, "rounds": 3}})
         with tmp_dir:
             expected_default = copy.deepcopy(DEFAULT_PROXY_RUNTIME)
             runtime = store.get_proxy_runtime_settings()
             self.assertEqual(runtime, expected_default)
-            self.assertEqual(store.get_proxy_settings(), "http://legacy.example:8080")
+            self.assertEqual(store.get_proxy_settings(), "http://proxy.example:8080")
 
             expected_public = copy.deepcopy(expected_default)
             expected_public["clearance"]["has_cf_cookies"] = False
             expected_public["clearance"]["has_cf_clearance"] = False
             public_config = store.get()
-            self.assertEqual(public_config["proxy"], " http://legacy.example:8080 ")
+            self.assertEqual(
+                public_config["proxy"],
+                {"url": "http://proxy.example:8080", "interval_secs": 2, "rounds": 3},
+            )
             self.assertEqual(public_config["proxy_runtime"], expected_public)
             self.assertNotIn("auth-key", public_config)
 
@@ -214,6 +219,32 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
             self.assertEqual(updated_raw["clearance"]["user_agent"], "Updated UA")
             self.assertEqual(updated_public["proxy_runtime"]["clearance"]["cf_cookies"], "")
             self.assertEqual(updated_public["proxy_runtime"]["clearance"]["cf_clearance"], "")
+
+    def test_proxy_defaults_and_update(self) -> None:
+        tmp_dir, store = self._make_store()
+        with tmp_dir:
+            self.assertEqual(
+                store.get_proxy_retry_settings(),
+                {"interval_secs": DEFAULT_PROXY["interval_secs"], "rounds": DEFAULT_PROXY["rounds"]},
+            )
+            public = store.get()
+            self.assertEqual(public["proxy"], copy.deepcopy(DEFAULT_PROXY))
+
+            updated = store.update(
+                {"proxy": {"url": " http://proxy.example:8080 ", "interval_secs": "5", "rounds": 0}}
+            )
+            self.assertEqual(
+                updated["proxy"],
+                {"url": "http://proxy.example:8080", "interval_secs": 5, "rounds": 1},
+            )
+            self.assertEqual(
+                _normalize_proxy_settings({"url": "", "interval_secs": -1, "rounds": "abc"}),
+                {"url": "", "interval_secs": 0, "rounds": 3},
+            )
+            raw = json.loads(store.path.read_text(encoding="utf-8"))
+            self.assertEqual(raw["proxy"]["url"], "http://proxy.example:8080")
+            self.assertEqual(raw["proxy"]["interval_secs"], 5)
+            self.assertEqual(raw["proxy"]["rounds"], 1)
 
 
 if __name__ == "__main__":

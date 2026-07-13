@@ -86,12 +86,13 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         ):
             session = openai_register.create_session("http://legacy-register.example:8080")
 
-        self.assertIs(session, created[0])
+        self.assertIs(session.raw, created[0])
         self.assertEqual(fake_proxy.session_kwargs_calls[0]["proxy"], "http://legacy-register.example:8080")
         self.assertTrue(fake_proxy.session_kwargs_calls[0]["upstream"])
         self.assertEqual(fake_proxy.session_kwargs_calls[0]["impersonate"], "chrome")
         self.assertFalse(fake_proxy.session_kwargs_calls[0]["verify"])
         self.assertEqual(session.kwargs["proxy"], "http://runtime.example:8118")
+        self.assertTrue(session._enabled)
 
     def test_cloudflare_without_clearance_keeps_clear_register_error(self):
         fake_proxy = FakeProxySettings(bundle=None, clearance_enabled=False)

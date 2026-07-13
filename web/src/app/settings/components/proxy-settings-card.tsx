@@ -19,9 +19,12 @@ export function ProxySettingsCard() {
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
   const setProxy = useSettingsStore((state) => state.setProxy);
+  const setProxyField = useSettingsStore((state) => state.setProxyField);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
-  const proxy = config?.proxy ?? "";
+  const proxy = config?.proxy?.url ?? "";
+  const proxyIntervalSecs = config?.proxy?.interval_secs ?? 2;
+  const proxyRounds = config?.proxy?.rounds ?? 3;
 
   const handleTest = async () => {
     const candidate = proxy.trim();
@@ -56,7 +59,9 @@ export function ProxySettingsCard() {
             </div>
             <div>
               <h2 className="text-lg font-semibold tracking-tight">全局代理</h2>
-              <p className="text-sm text-stone-500">为系统中的出站请求配置统一代理，保存后会立即生效。</p>
+              <p className="text-sm text-stone-500">
+                GPT 上游在无账号代理时走此代理；图片下载/上传走直连。保存后立即生效。
+              </p>
             </div>
           </div>
           <Badge variant={proxy.trim() ? "success" : "secondary"} className="w-fit rounded-md px-2.5 py-1">
@@ -82,9 +87,33 @@ export function ProxySettingsCard() {
                 className="h-11 rounded-xl border-stone-200 bg-white"
               />
               <p className="text-sm text-stone-500">
-                留空表示不使用代理。请按完整地址填写，例如 `http://127.0.0.1:7890`、`http://用户名:密码@127.0.0.1:7890` 或 `socks5://127.0.0.1:7890`。
+                支持 http / https / socks5。示例：`http://127.0.0.1:7890`、`socks5://127.0.0.1:1080`。socks5 会自动转为 socks5h。
               </p>
             </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-stone-700">超时重连间隔（秒）</label>
+                <Input
+                  value={String(proxyIntervalSecs)}
+                  onChange={(event) => setProxyField("interval_secs", event.target.value)}
+                  placeholder="2"
+                  className="h-11 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-stone-700">重连轮数</label>
+                <Input
+                  value={String(proxyRounds)}
+                  onChange={(event) => setProxyField("rounds", event.target.value)}
+                  placeholder="3"
+                  className="h-11 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+            </div>
+            <p className="text-sm text-stone-500">
+              代理超时或连接失败时，按间隔重连，最多尝试配置的轮数。写入 `config.json` 的 `proxy.interval_secs` / `proxy.rounds`。
+            </p>
 
             {testResult ? (
               <div

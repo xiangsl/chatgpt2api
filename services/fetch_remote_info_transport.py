@@ -1,4 +1,4 @@
-"""fetch_remote_info 的三种独立出口：本地直连、清障、注册代理。"""
+"""fetch_remote_info 出口：本地/全局代理会话、清障。不再使用注册代理。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ from typing import Any
 
 from curl_cffi import requests
 
-from services.proxy_service import ClearanceBundle, proxy_settings
-from services.register import openai_register
+from services.proxy_service import ClearanceBundle, proxy_settings, wrap_session_with_proxy_retry
 from utils.helper import anonymize_token
 from utils.log import logger
 
@@ -41,18 +40,20 @@ def _apply_clearance_bundle(session: requests.Session, bundle: ClearanceBundle |
             continue
 
 
-def _rebuild_backend_session(api: Any, *, proxy: str = "", upstream: bool = False) -> requests.Session:
+def _rebuild_backend_session(api: Any, *, proxy: str = "", upstream: bool = False) -> Any:
     account = api.account if isinstance(api.account, dict) else {}
     impersonate = str(api.fp.get("impersonate") or "chrome110")
     api.session.close()
-    session = requests.Session(
-        **proxy_settings.build_session_kwargs(
-            account=account,
-            proxy=proxy,
-            upstream=upstream,
-            impersonate=impersonate,
-            verify=True,
-        )
+    session_kwargs = proxy_settings.build_session_kwargs(
+        account=account,
+        proxy=proxy,
+        upstream=upstream,
+        impersonate=impersonate,
+        verify=True,
+    )
+    session = wrap_session_with_proxy_retry(
+        requests.Session(**session_kwargs),
+        enabled=bool(session_kwargs.get("proxy")),
     )
     session.headers.update(api._build_session_headers())
     token = str(api.access_token or "").strip()
@@ -87,17 +88,6 @@ def fetch_user_info_clearance(access_token: str) -> dict[str, Any]:
         api.close()
 
 
-def fetch_user_info_proxy(access_token: str, proxy: str) -> dict[str, Any]:
-    from services.openai_backend_api import OpenAIBackendAPI
-
-    api = OpenAIBackendAPI(access_token)
-    _rebuild_backend_session(api, proxy=str(proxy or "").strip(), upstream=True)
-    try:
-        return api.get_user_info()
-    finally:
-        api.close()
-
-
 def _log_egress_success(*, egress: str, token_hint: str, proxy: str = "") -> None:
     payload: dict[str, Any] = {
         "event": "fetch_remote_info_egress",
@@ -109,27 +99,13 @@ def _log_egress_success(*, egress: str, token_hint: str, proxy: str = "") -> Non
     logger.info(payload)
 
 
-def _resolve_fetch_remote_info_proxy() -> str:
-    return str(openai_register.config.get("proxy") or "").strip()
-
-
-def _always_use_fetch_remote_info_proxy() -> bool:
-    return bool(openai_register.config.get("always_use_fetch_remote_info_proxy"))
-
-
 def fetch_user_info_with_403_fallback(access_token: str) -> dict[str, Any]:
+    """优先走账号/全局代理会话；403 时尝试 FlareSolverr 清障。"""
     token_hint = anonymize_token(access_token)
-
-    if _always_use_fetch_remote_info_proxy():
-        proxy = _resolve_fetch_remote_info_proxy()
-        if proxy:
-            result = fetch_user_info_proxy(access_token, proxy)
-            _log_egress_success(egress="proxy", token_hint=token_hint, proxy=proxy)
-            return result
 
     try:
         result = fetch_user_info_local(access_token)
-        _log_egress_success(egress="local", token_hint=token_hint)
+        _log_egress_success(egress="session", token_hint=token_hint)
         return result
     except RuntimeError as exc:
         if not is_http_403_error(exc):
@@ -143,12 +119,4 @@ def fetch_user_info_with_403_fallback(access_token: str) -> dict[str, Any]:
     except RuntimeError as exc:
         if not is_http_403_error(exc):
             raise
-        clearance_error = exc
-
-    proxy = _resolve_fetch_remote_info_proxy()
-    if not proxy:
-        raise clearance_error from local_error
-
-    result = fetch_user_info_proxy(access_token, proxy)
-    _log_egress_success(egress="proxy", token_hint=token_hint, proxy=proxy)
-    return result
+        raise exc from local_error

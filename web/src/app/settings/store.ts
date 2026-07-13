@@ -31,6 +31,7 @@ import {
   type CPARemoteFile,
   type ImageStorageMode,
   type ImageStorageSettings,
+  type GlobalProxySettings,
   type ProxyRuntimeClearanceMode,
   type ProxyRuntimeEgressMode,
   type ProxyRuntimeSettings,
@@ -42,6 +43,12 @@ import {
 export const PAGE_SIZE_OPTIONS = ["50", "100", "200"] as const;
 
 export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
+
+const DEFAULT_PROXY: GlobalProxySettings = {
+  url: "",
+  interval_secs: 2,
+  rounds: 3,
+};
 
 const DEFAULT_PROXY_RUNTIME: ProxyRuntimeSettings = {
   enabled: false,
@@ -115,6 +122,16 @@ function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
   };
 }
 
+function normalizeProxy(value: unknown): GlobalProxySettings {
+  const source = typeof value === "object" && value !== null ? value as Partial<GlobalProxySettings> : {};
+  return {
+    ...DEFAULT_PROXY,
+    url: String(source.url || ""),
+    interval_secs: Math.max(0, Number(source.interval_secs ?? DEFAULT_PROXY.interval_secs) || 0),
+    rounds: Math.max(1, Number(source.rounds ?? DEFAULT_PROXY.rounds) || 1),
+  };
+}
+
 function normalizeThirdPartyApps(value: unknown): ThirdPartyAppsSettings {
   const source = typeof value === "object" && value !== null ? value as Partial<ThirdPartyAppsSettings> : {};
   const canvas = typeof source.infinite_canvas === "object" && source.infinite_canvas
@@ -185,7 +202,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
-    proxy: typeof config.proxy === "string" ? config.proxy : "",
+    proxy: normalizeProxy(config.proxy),
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
@@ -310,6 +327,7 @@ type SettingsStore = {
   setAutoReloginAfterRefresh: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
+  setProxyField: <K extends "interval_secs" | "rounds">(key: K, value: string | number) => void;
   setBaseUrl: (value: string) => void;
   setGlobalSystemPrompt: (value: string) => void;
   setSensitiveWordsText: (value: string) => void;
@@ -456,7 +474,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
         auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
         auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
-        proxy: config.proxy.trim(),
+        proxy: (() => {
+          const normalized = normalizeProxy(config.proxy);
+          return {
+            url: normalized.url.trim(),
+            interval_secs: normalized.interval_secs,
+            rounds: normalized.rounds,
+          };
+        })(),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
         sensitive_words: (config.sensitive_words || []).map((item) => String(item).trim()).filter(Boolean),
@@ -597,10 +622,33 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       if (!state.config) {
         return {};
       }
+      const current = normalizeProxy(state.config.proxy);
       return {
         config: {
           ...state.config,
-          proxy: value,
+          proxy: {
+            ...current,
+            url: value,
+          },
+        },
+      };
+    });
+  },
+
+  setProxyField: (key, value) => {
+    set((state) => {
+      if (!state.config) {
+        return {};
+      }
+      const current = normalizeProxy(state.config.proxy);
+      const numeric = typeof value === "number" ? value : Number(value);
+      return {
+        config: {
+          ...state.config,
+          proxy: {
+            ...current,
+            [key]: Number.isFinite(numeric) ? numeric : current[key],
+          },
         },
       };
     });
