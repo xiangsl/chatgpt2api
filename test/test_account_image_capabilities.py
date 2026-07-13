@@ -146,6 +146,74 @@ class AccountCapabilityTests(unittest.TestCase):
             else:
                 config.data["auto_remove_invalid_accounts"] = original_value
 
+    def test_list_limited_tokens_skips_accounts_before_restore_at(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        original_value = config.data.get("auto_remove_rate_limited_accounts")
+        config.data["auto_remove_rate_limited_accounts"] = False
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                service.add_accounts(["due-token", "waiting-token", "unknown-restore-token"])
+                now = datetime.now(timezone.utc)
+                service.update_account(
+                    "due-token",
+                    {
+                        "status": "限流",
+                        "quota": 0,
+                        "restore_at": (now - timedelta(minutes=5)).isoformat(),
+                    },
+                )
+                service.update_account(
+                    "waiting-token",
+                    {
+                        "status": "限流",
+                        "quota": 0,
+                        "restore_at": (now + timedelta(hours=2)).isoformat(),
+                    },
+                )
+                service.update_account(
+                    "unknown-restore-token",
+                    {
+                        "status": "限流",
+                        "quota": 0,
+                        "restore_at": None,
+                    },
+                )
+
+                self.assertEqual(
+                    set(service.list_limited_tokens()),
+                    {"due-token", "waiting-token", "unknown-restore-token"},
+                )
+                self.assertEqual(
+                    set(service.list_limited_tokens(due_for_refresh=True)),
+                    {"due-token", "unknown-restore-token"},
+                )
+        finally:
+            if original_value is None:
+                config.data.pop("auto_remove_rate_limited_accounts", None)
+            else:
+                config.data["auto_remove_rate_limited_accounts"] = original_value
+
+    def test_is_restore_due_handles_missing_or_invalid_restore_at(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        self.assertTrue(AccountService._is_restore_due({"restore_at": None}, now))
+        self.assertTrue(AccountService._is_restore_due({"restore_at": "invalid-time"}, now))
+        self.assertFalse(
+            AccountService._is_restore_due(
+                {"restore_at": (now + timedelta(hours=1)).isoformat()},
+                now,
+            )
+        )
+        self.assertTrue(
+            AccountService._is_restore_due(
+                {"restore_at": (now - timedelta(minutes=1)).isoformat()},
+                now,
+            )
+        )
+
 
 class TokenLogTests(unittest.TestCase):
     def test_anonymize_token_hides_raw_value(self) -> None:

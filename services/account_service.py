@@ -1135,14 +1135,35 @@ class AccountService:
                 result.append(account)
             return result
 
-    def list_limited_tokens(self) -> list[str]:
+    @staticmethod
+    def _is_restore_due(account: dict, now: datetime | None = None) -> bool:
+        """限流账号是否已到恢复时间；无恢复时间时视为需要刷新以拉取。"""
+        if not isinstance(account, dict):
+            return False
+        restore_at_raw = account.get("restore_at")
+        if not restore_at_raw:
+            return True
+        if now is None:
+            now = datetime.now(timezone.utc)
+        restore_at = AccountService._parse_time(restore_at_raw)
+        if restore_at is None:
+            return True
+        return restore_at <= now
+
+    def list_limited_tokens(self, *, due_for_refresh: bool = False) -> list[str]:
         with self._lock:
-            return [
-                token
-                for item in self._accounts.values()
-                if item.get("status") == "限流"
-                   and (token := item.get("access_token") or "")
-            ]
+            now = datetime.now(timezone.utc)
+            tokens: list[str] = []
+            for item in self._accounts.values():
+                if item.get("status") != "限流":
+                    continue
+                token = item.get("access_token") or ""
+                if not token:
+                    continue
+                if due_for_refresh and not self._is_restore_due(item, now):
+                    continue
+                tokens.append(token)
+            return tokens
 
     def list_normal_tokens(self) -> list[str]:
         with self._lock:
