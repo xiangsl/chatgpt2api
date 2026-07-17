@@ -59,6 +59,7 @@ class AccountService:
         self._image_inflight_times: dict[str, list[float]] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
+        self._invalid_account_total = self._load_invalid_account_total()
 
     def _get_cumulative_file(self) -> Path:
         from services.config import DATA_DIR
@@ -78,6 +79,41 @@ class AccountService:
             self._get_cumulative_file().write_text(str(self._cumulative_total))
         except Exception:
             pass
+
+    def _get_invalid_account_total_file(self) -> Path:
+        from services.config import DATA_DIR
+        return DATA_DIR / ".invalid_account_total"
+
+    def _load_invalid_account_total(self) -> int:
+        try:
+            path = self._get_invalid_account_total_file()
+            if path.exists():
+                return max(0, int(path.read_text().strip()))
+        except Exception:
+            pass
+        return 0
+
+    def _save_invalid_account_total(self) -> None:
+        try:
+            self._get_invalid_account_total_file().write_text(str(self._invalid_account_total))
+        except Exception:
+            pass
+
+    def _record_invalid_account_removal_locked(self, count: int = 1) -> None:
+        if count <= 0:
+            return
+        self._invalid_account_total += count
+        self._save_invalid_account_total()
+
+    def get_invalid_account_total(self) -> int:
+        with self._lock:
+            return self._invalid_account_total
+
+    def reset_invalid_account_total(self) -> int:
+        with self._lock:
+            self._invalid_account_total = 0
+            self._save_invalid_account_total()
+            return self._invalid_account_total
 
     @staticmethod
     def _now() -> str:
@@ -1109,7 +1145,7 @@ class AccountService:
         if not config.auto_remove_invalid_accounts:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
             return False
-        removed = bool(self.delete_accounts([access_token])["removed"])
+        removed = bool(self.delete_accounts([access_token], count_as_invalid=True)["removed"])
         if removed:
             log_service.add(LOG_TYPE_ACCOUNT, "自动移除异常账号",
                             {"source": event, "token": anonymize_token(access_token)})
@@ -1222,6 +1258,39 @@ class AccountService:
             for token in tokens
         ])
 
+    def build_import_payloads_with_proxy_allocation(
+        self,
+        tokens: list[str],
+        source_type: str = "web",
+    ) -> list[dict]:
+        """按配置的账号代理列表轮询分配 proxy，供 access-token 导入使用。
+
+        - 列表为空：不设置 proxy
+        - 仅给尚未入池的新账号分配；已存在账号保持原 proxy，不占用配额
+        - 轮询游标持久化：跨「一次导入一个」连续计数
+        - 当前代理达到 accounts_per_proxy 后切下一个并把计数清零
+        """
+        normalized_tokens = list(dict.fromkeys(token for token in tokens if token))
+        source = self._normalize_source_type(source_type)
+        if not normalized_tokens:
+            return []
+
+        new_tokens = [token for token in normalized_tokens if self.get_account(token) is None]
+        allocated_proxies = config.allocate_account_proxies(len(new_tokens))
+        proxy_by_token = {
+            token: proxy
+            for token, proxy in zip(new_tokens, allocated_proxies)
+        }
+
+        payloads: list[dict] = []
+        for token in normalized_tokens:
+            payload: dict = {"access_token": token, "source_type": source}
+            proxy = proxy_by_token.get(token)
+            if proxy:
+                payload["proxy"] = proxy
+            payloads.append(payload)
+        return payloads
+
     def _add_account_payloads(self, payloads: list[dict]) -> dict:
         deduped: dict[str, dict] = {}
         for payload in payloads:
@@ -1267,13 +1336,15 @@ class AccountService:
                             {"added": added, "skipped": skipped})
         return {"added": added, "skipped": skipped, "items": items}
 
-    def delete_accounts(self, tokens: list[str]) -> dict:
+    def delete_accounts(self, tokens: list[str], *, count_as_invalid: bool = False) -> dict:
         target_set = set(token for token in tokens if token)
         if not target_set:
             return {"removed": 0, "items": self.list_accounts()}
         with self._lock:
             target_set = {self._resolve_access_token_locked(token) for token in target_set if token}
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
+            if count_as_invalid:
+                self._record_invalid_account_removal_locked(removed)
             for token in target_set:
                 self._image_inflight.pop(token, None)
                 self._image_inflight_times.pop(token, None)
@@ -1304,7 +1375,8 @@ class AccountService:
             if account is None:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
-                self._accounts.pop(access_token, None)
+                if self._accounts.pop(access_token, None) is not None:
+                    self._record_invalid_account_removal_locked()
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
@@ -1362,7 +1434,7 @@ class AccountService:
                     self._save_accounts()
                 return
         if token_to_delete:
-            self.delete_accounts([token_to_delete])
+            self.delete_accounts([token_to_delete], count_as_invalid=True)
 
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):
@@ -1437,7 +1509,8 @@ class AccountService:
             if account is None:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
-                self._accounts.pop(access_token, None)
+                if self._accounts.pop(access_token, None) is not None:
+                    self._record_invalid_account_removal_locked()
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
@@ -1597,7 +1670,13 @@ class AccountService:
         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
         if not access_tokens:
             items = self.list_accounts()
-            result = {"refreshed": 0, "errors": [], "items": items, "relogined": 0}
+            result = {
+                "refreshed": 0,
+                "errors": [],
+                "items": items,
+                "relogined": 0,
+                "invalid_account_count": self.get_invalid_account_total(),
+            }
             if progress_id:
                 self.finish_refresh_progress(progress_id, result)
             return result
@@ -1670,6 +1749,7 @@ class AccountService:
             "errors": errors,
             "items": self.list_accounts(),
             "relogined": relogined,
+            "invalid_account_count": self.get_invalid_account_total(),
         }
 
         if progress_id:
@@ -1806,6 +1886,7 @@ class AccountService:
         return {
             "total": total,
             "cumulative_total": self._cumulative_total,
+            "invalid_removed": self._invalid_account_total,
             "active": active,
             "limited": limited,
             "abnormal": abnormal,

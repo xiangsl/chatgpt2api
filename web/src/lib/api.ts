@@ -65,6 +65,7 @@ export type Model = {
 
 type AccountListResponse = {
   items: Account[];
+  invalid_account_count: number;
 };
 
 type ModelListResponse = {
@@ -86,6 +87,7 @@ export type AccountRefreshResponse = {
   items: Account[];
   refreshed: number;
   relogined?: number;
+  invalid_account_count?: number;
   errors: Array<{ access_token: string; error: string }>;
 };
 
@@ -164,6 +166,8 @@ export type GlobalProxySettings = {
 
 export type SettingsConfig = {
   proxy: GlobalProxySettings;
+  account_proxy_list?: string[];
+  accounts_per_proxy?: number | string;
   base_url?: string;
   global_system_prompt?: string;
   sensitive_words?: string[];
@@ -389,6 +393,12 @@ export async function login(authKey: string) {
 
 export async function fetchAccounts() {
   return httpRequest<AccountListResponse>("/api/accounts");
+}
+
+export async function resetInvalidAccountStats() {
+  return httpRequest<{ invalid_account_count: number }>("/api/accounts/stats/invalid/reset", {
+    method: "POST",
+  });
 }
 
 export async function fetchModels() {

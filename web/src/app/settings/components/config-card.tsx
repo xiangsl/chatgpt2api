@@ -35,6 +35,9 @@ export function ConfigCard() {
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setProxyField = useSettingsStore((state) => state.setProxyField);
+  const accountProxyListText = useSettingsStore((state) => state.accountProxyListText);
+  const setAccountProxyListText = useSettingsStore((state) => state.setAccountProxyListText);
+  const setAccountsPerProxy = useSettingsStore((state) => state.setAccountsPerProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
   const setGlobalSystemPrompt = useSettingsStore((state) => state.setGlobalSystemPrompt);
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
@@ -86,7 +89,7 @@ export function ConfigCard() {
           管理员登录密钥继续从部署配置读取，不再在此页面展示；如需分发给其他人，请在下方创建普通用户密钥。
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
+          <div className="space-y-2 md:col-span-2">
             <label className="text-sm text-stone-700">账号刷新间隔</label>
             <Input
               value={String(config?.refresh_account_interval_minute || "")}
@@ -155,6 +158,30 @@ export function ConfigCard() {
                 {isTestingProxy ? <LoaderCircle className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
                 测试代理
               </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">账号代理列表</label>
+            <Textarea
+              value={accountProxyListText}
+              onChange={(event) => setAccountProxyListText(event.target.value)}
+              placeholder={"一行一个，例如：\nhttp://127.0.0.1:7890\nsocks5://127.0.0.1:1080"}
+              className="min-h-28 rounded-xl border-stone-200 bg-white font-mono text-xs"
+            />
+            <p className="text-xs text-stone-500">
+              Access Token 导入时按轮询分配给新账号；留空则账号不设置代理。
+            </p>
+            <div className="space-y-2 pt-2">
+              <label className="text-sm text-stone-700">单代理数量</label>
+              <Input
+                value={String(config?.accounts_per_proxy ?? 1)}
+                onChange={(event) => setAccountsPerProxy(event.target.value)}
+                placeholder="1"
+                className="h-10 rounded-xl border-stone-200 bg-white"
+              />
+              <p className="text-xs text-stone-500">
+                每个代理连续分配多少个账号后再切换到下一个；切换后计数清零，列表用完后从头循环。支持一次导入一个，游标会持久记住。
+              </p>
             </div>
           </div>
           <div className="space-y-2">

@@ -50,6 +50,7 @@ import {
   fetchReLoginProgress,
   reLoginAccounts,
   refreshAccounts,
+  resetInvalidAccountStats,
   testProxy,
   updateAccount,
   type Account,
@@ -89,6 +90,7 @@ const metricCards = [
   { key: "active", label: "正常账户", color: "text-emerald-600", icon: CheckCircle2 },
   { key: "limited", label: "限流账户", color: "text-orange-500", icon: CircleAlert },
   { key: "abnormal", label: "异常账户", color: "text-rose-500", icon: CircleOff },
+  { key: "invalid", label: "失效账号", color: "text-rose-600", icon: CircleOff },
   { key: "disabled", label: "禁用账户", color: "text-stone-500", icon: Ban },
   { key: "quota", label: "剩余额度", color: "text-blue-500", icon: RefreshCw },
 ] as const;
@@ -188,6 +190,7 @@ function displayAccountSource(account: Account) {
 function AccountsPageContent() {
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [invalidAccountCount, setInvalidAccountCount] = useState(0);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -205,6 +208,7 @@ function AccountsPageContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshingTokens, setRefreshingTokens] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isClearingInvalidStats, setIsClearingInvalidStats] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
   const [progress, setProgress] = useState<{
@@ -230,6 +234,7 @@ function AccountsPageContent() {
     try {
       const data = await fetchAccounts();
       setAccounts(data.items);
+      setInvalidAccountCount(data.invalid_account_count);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载账户失败";
@@ -301,6 +306,20 @@ function AccountsPageContent() {
 
     return { total, active, limited, abnormal, disabled, quota };
   }, [accounts]);
+
+  const handleResetInvalidAccountStats = async () => {
+    setIsClearingInvalidStats(true);
+    try {
+      const data = await resetInvalidAccountStats();
+      setInvalidAccountCount(data.invalid_account_count);
+      toast.success("失效账号统计已清空");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "清空失效账号统计失败";
+      toast.error(message);
+    } finally {
+      setIsClearingInvalidStats(false);
+    }
+  };
 
   const accountTypeOptions = useMemo(
     () => [
@@ -378,6 +397,7 @@ function AccountsPageContent() {
         await pollRefreshProgress(progress_id, (progress) => {
           if (progress.done && progress.result) {
             setAccounts(progress.result.items);
+            setInvalidAccountCount(progress.result.invalid_account_count ?? invalidAccountCount);
             setSelectedIds((prev) => prev.filter((id) => progress.result!.items.some((item) => item.access_token === id)));
           }
         });
@@ -482,6 +502,7 @@ function AccountsPageContent() {
 
       // 刷新完成，更新数据
       setAccounts(data.items);
+      setInvalidAccountCount(data.invalid_account_count ?? invalidAccountCount);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
 
       const relogined = data.relogined ?? 0;
@@ -673,6 +694,7 @@ function AccountsPageContent() {
       try {
         const freshData = await fetchAccounts();
         setAccounts(freshData.items);
+        setInvalidAccountCount(freshData.invalid_account_count);
         setSelectedIds((prev) => prev.filter((id) => freshData.items.some((item) => item.access_token === id)));
       } catch { /* 静默失败 */ }
 
@@ -893,10 +915,10 @@ function AccountsPageContent() {
       </Dialog>
 
       <section className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           {metricCards.map((item) => {
             const Icon = item.icon;
-            const value = (refreshSummary ?? summary)[item.key];
+            const value = item.key === "invalid" ? invalidAccountCount : (refreshSummary ?? summary)[item.key];
             return (
               <Card key={item.key} className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
                 <CardContent className="p-4">
@@ -905,9 +927,24 @@ function AccountsPageContent() {
                     <Icon className="size-4 text-stone-400" />
                   </div>
                   <div className={cn("text-[1.75rem] font-semibold tracking-tight", item.color)}>
-                    <span className={typeof value === "number" ? "" : "text-[1.1rem]"}>
-                      {typeof value === "number" ? formatCompact(value) : value}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className={typeof value === "number" ? "" : "text-[1.1rem]"}>
+                        {typeof value === "number" ? formatCompact(value) : value}
+                      </span>
+                      {item.key === "invalid" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-stone-400 hover:bg-rose-50 hover:text-rose-600"
+                          onClick={() => void handleResetInvalidAccountStats()}
+                          disabled={isClearingInvalidStats || invalidAccountCount === 0}
+                          title="清空失效账号统计"
+                        >
+                          {isClearingInvalidStats ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </CardContent>
               </Card>

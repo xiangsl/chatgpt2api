@@ -110,5 +110,9 @@
     }
   },
   "image_sse_timeout_secs": 150,
-  "image_inflight_timeout_secs": 600
+  "image_inflight_timeout_secs": 600,
+  "account_proxy_list": [],
+  "accounts_per_proxy": 1,
+  "account_proxy_rr_index": 0,
+  "account_proxy_rr_count": 0
 }

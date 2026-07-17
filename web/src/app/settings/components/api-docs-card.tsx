@@ -222,6 +222,7 @@ const docs: ApiDoc[] = [
       ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
       ["access_token", "string", "可选，单个 Access Token。"],
       ["tokens", "string[]", "可选，批量 Access Token 列表；可与 access_token 同时传。"],
+      ["proxy", "string", "可选，账号代理；非空时保存到本次导入的每个账号并用于后续刷新。"],
     ],
     output: [
       ["added", "number", "新增账号数量。"],
@@ -233,7 +234,7 @@ const docs: ApiDoc[] = [
     example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/accounts/import/access-token \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"access_token":"<your-access-token>"}'`,
+  -d '{"access_token":"<your-access-token>","proxy":"http://127.0.0.1:7890"}'`,
   },
   {
     title: "Session JSON 导入",

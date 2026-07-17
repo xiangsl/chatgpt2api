@@ -1510,7 +1510,20 @@ def _generate_single_image(
                     time.sleep(wait_secs)
                     continue
             if not emitted_for_token and token and is_image_sse_stream_error(last_error, exc):
-                account_service.remove_invalid_token(token, "image_stream_error")
+                # SSE 读流失败不一定是账号坏了：先拉远程信息确认。
+                # fetch_remote_info 在 token 真正失效时会更新本地为异常；成功则只同步正常/限流，不误标。
+                try:
+                    account_service.fetch_remote_info(token, "image_stream_error")
+                except Exception as verify_exc:
+                    verified = account_service.get_account(token) or {}
+                    logger.warning({
+                        "event": "image_stream_sse_error_verify",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "verify_error": str(verify_exc)[:200],
+                        "status": verified.get("status"),
+                        "index": index,
+                    })
                 sse_stream_retry_count += 1
                 if sse_stream_retry_count <= MAX_SSE_STREAM_RETRIES:
                     logger.warning({

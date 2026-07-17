@@ -53,6 +53,7 @@ class AccountCreateRequest(BaseModel):
 class AccessTokenImportRequest(BaseModel):
     access_token: str = ""
     tokens: list[str] = Field(default_factory=list)
+    proxy: str = ""
 
 
 class SessionJsonImportRequest(BaseModel):
@@ -145,11 +146,19 @@ def _extract_session_access_token(value: Any) -> str:
     return str(token).strip()
 
 
-def _import_access_tokens(tokens: list[str]) -> dict[str, Any]:
+def _import_access_tokens(tokens: list[str], proxy: str = "") -> dict[str, Any]:
     normalized = _unique_tokens(tokens)
     if not normalized:
         raise HTTPException(status_code=400, detail={"error": "access_token or tokens is required"})
-    result = account_service.add_accounts(normalized)
+    account_proxy = proxy.strip()
+    if account_proxy:
+        payloads = [
+            {"access_token": token, "source_type": "web", "proxy": account_proxy}
+            for token in normalized
+        ]
+    else:
+        payloads = account_service.build_import_payloads_with_proxy_allocation(normalized)
+    result = account_service.add_account_items(payloads)
     refresh_result = account_service.refresh_accounts(normalized)
     return {
         **result,
@@ -241,7 +250,10 @@ def create_router() -> APIRouter:
     @router.get("/api/accounts")
     async def get_accounts(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return {"items": account_service.list_accounts()}
+        return {
+            "items": account_service.list_accounts(),
+            "invalid_account_count": account_service.get_invalid_account_total(),
+        }
 
     @router.get("/api/accounts/stats/normal")
     async def get_normal_account_stats(authorization: str | None = Header(default=None)):
@@ -252,6 +264,11 @@ def create_router() -> APIRouter:
             "active_count": stats["active"],
             "total_quota": stats["total_quota"],
         }
+
+    @router.post("/api/accounts/stats/invalid/reset")
+    async def reset_invalid_account_stats(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return {"invalid_account_count": account_service.reset_invalid_account_total()}
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
@@ -266,11 +283,15 @@ def create_router() -> APIRouter:
             payload_token_set = set(_unique_tokens(payload_tokens))
             extra_tokens = [token for token in tokens if token not in payload_token_set]
             if extra_tokens:
-                extra_result = account_service.add_accounts(extra_tokens)
+                extra_result = account_service.add_account_items(
+                    account_service.build_import_payloads_with_proxy_allocation(extra_tokens)
+                )
                 result["added"] = int(result.get("added") or 0) + int(extra_result.get("added") or 0)
                 result["skipped"] = int(result.get("skipped") or 0) + int(extra_result.get("skipped") or 0)
         else:
-            result = account_service.add_accounts(tokens)
+            result = account_service.add_account_items(
+                account_service.build_import_payloads_with_proxy_allocation(tokens)
+            )
         refresh_result = account_service.refresh_accounts(tokens)
         return {
             **result,
@@ -284,7 +305,7 @@ def create_router() -> APIRouter:
         """Import one or more accounts by Access Token, matching the web UI import flow."""
         require_admin(authorization)
         tokens = _unique_tokens([body.access_token, *body.tokens])
-        return _import_access_tokens(tokens)
+        return _import_access_tokens(tokens, body.proxy)
 
     @router.post("/api/accounts/import/session-json")
     async def import_session_json(body: SessionJsonImportRequest, authorization: str | None = Header(default=None)):

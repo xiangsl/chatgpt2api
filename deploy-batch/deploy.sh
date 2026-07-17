@@ -67,7 +67,7 @@ check_deps() {
 
 check_files() {
     local missing=()
-    for f in "$TAR_FILE" "$UPDATE_SCRIPT" "$HOSTS_FILE" "$CONFIG_FILE" "$COMPOSE_FILE"; do
+    for f in "$TAR_FILE" "$UPDATE_SCRIPT" "$HOSTS_FILE" "$COMPOSE_FILE"; do
         [[ -f "$f" ]] || missing+=("$f")
     done
     if ((${#missing[@]} > 0)); then
@@ -139,7 +139,7 @@ deploy_one() {
     )
     local remote="${user}@${host}"
     local port tar_size start elapsed
-    local -a extra_files=()
+    local -a extra_files=() fixed_files=()
 
     log_info "========== 开始部署: ${host} (${target_dir}) =========="
 
@@ -157,13 +157,19 @@ deploy_one() {
     local tmp_dir
     tmp_dir="$(mktemp -d)"
     prepare_compose "$port" "${tmp_dir}/${COMPOSE_FILE}"
+    fixed_files=( "$UPDATE_SCRIPT" "$TAR_FILE" "${tmp_dir}/${COMPOSE_FILE}" )
+    if [[ -f "$CONFIG_FILE" ]]; then
+        fixed_files+=( "$CONFIG_FILE" )
+    else
+        log_warn "${host}: 未找到 ${CONFIG_FILE}，跳过上传"
+    fi
     log_info "${host}: 已生成 docker-compose.yml（CHATGPT2API_PORT=${port}，容器名后缀 _${port}）"
 
     tar_size="$(du -h "$TAR_FILE" | cut -f1)"
     log_info "${host}: 上传固定文件（约 ${tar_size}），大文件可能需几分钟 ..."
     start=$(date +%s)
     if ! sshpass -p "$password" scp "${conn_opts[@]}" \
-        "$UPDATE_SCRIPT" "$TAR_FILE" "$CONFIG_FILE" "${tmp_dir}/${COMPOSE_FILE}" \
+        "${fixed_files[@]}" \
         "${remote}:${target_dir}/" </dev/null; then
         rm -rf "$tmp_dir"
         log_error "${host}: 固定文件复制失败"

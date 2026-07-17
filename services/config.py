@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from threading import Lock
 import time
 
 from services.storage.base import StorageBackend
@@ -81,6 +82,26 @@ DEFAULT_PROXY = {
     "interval_secs": 2,
     "rounds": 3,
 }
+
+DEFAULT_ACCOUNTS_PER_PROXY = 1
+
+
+def _normalize_account_proxy_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        items = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    elif isinstance(value, list):
+        items = value
+    else:
+        items = []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        proxy = str(item or "").strip()
+        if not proxy or proxy in seen:
+            continue
+        seen.add(proxy)
+        normalized.append(proxy)
+    return normalized
 
 DEFAULT_THIRD_PARTY_APPS = {
     "infinite_canvas": {
@@ -377,6 +398,7 @@ class ConfigStore:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.data = self._load()
         self._storage_backend: StorageBackend | None = None
+        self._lock = Lock()
         if _is_invalid_auth_key(self.auth_key):
             raise ValueError(
                 "❌ auth-key 未设置！\n"
@@ -612,10 +634,69 @@ class ConfigStore:
         data["image_storage"] = self.get_image_storage_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy"] = self.get_proxy_config()
+        data["account_proxy_list"] = self.account_proxy_list
+        data["accounts_per_proxy"] = self.accounts_per_proxy
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
         data["third_party_apps"] = self.get_third_party_apps_settings()
         data.pop("auth-key", None)
         return data
+
+    @property
+    def account_proxy_list(self) -> list[str]:
+        return _normalize_account_proxy_list(self.data.get("account_proxy_list"))
+
+    @property
+    def accounts_per_proxy(self) -> int:
+        try:
+            return max(1, int(self.data.get("accounts_per_proxy", DEFAULT_ACCOUNTS_PER_PROXY)))
+        except (TypeError, ValueError):
+            return DEFAULT_ACCOUNTS_PER_PROXY
+
+    def allocate_account_proxies(self, count: int) -> list[str]:
+        """按持久化的轮询游标分配账号代理。
+
+        规则：
+        - 列表为空返回空列表
+        - 记下当前代理及已分配数量，每次分配后递增
+        - 当前代理达到 accounts_per_proxy 后切到下一个，并将计数清零
+          （切换后即可继续分配；循环回第一个代理时也能再次接收）
+        """
+        with self._lock:
+            proxies = _normalize_account_proxy_list(self.data.get("account_proxy_list"))
+            if not proxies or count <= 0:
+                return []
+
+            per_proxy = self.accounts_per_proxy
+            try:
+                index = int(self.data.get("account_proxy_rr_index") or 0)
+            except (TypeError, ValueError):
+                index = 0
+            try:
+                assigned = int(self.data.get("account_proxy_rr_count") or 0)
+            except (TypeError, ValueError):
+                assigned = 0
+
+            if index < 0 or index >= len(proxies):
+                index = 0
+                assigned = 0
+            if assigned < 0 or assigned >= per_proxy:
+                # 数量已满或非法：切到下一个并清零，避免卡死
+                if assigned >= per_proxy:
+                    index = (index + 1) % len(proxies)
+                assigned = 0
+
+            allocated: list[str] = []
+            for _ in range(count):
+                allocated.append(proxies[index])
+                assigned += 1
+                if assigned >= per_proxy:
+                    index = (index + 1) % len(proxies)
+                    assigned = 0
+
+            self.data["account_proxy_rr_index"] = index
+            self.data["account_proxy_rr_count"] = assigned
+            self._save()
+            return allocated
 
     def get_proxy_config(self) -> dict[str, object]:
         return _normalize_proxy_settings(self.data.get("proxy"))
@@ -649,34 +730,52 @@ class ConfigStore:
         return _normalize_third_party_apps_settings(self.data.get("third_party_apps"))
 
     def update(self, data: dict[str, object]) -> dict[str, object]:
-        next_data = dict(self.data)
-        next_data.update(dict(data or {}))
-        if "backup" in next_data:
-            next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
-        if "image_storage" in next_data:
-            next_data["image_storage"] = _normalize_image_storage_settings(next_data.get("image_storage"))
-            _validate_image_storage_settings(next_data["image_storage"])
-        if "chat_completion_cache" in next_data:
-            next_data["chat_completion_cache"] = _normalize_chat_completion_cache_settings(
-                next_data.get("chat_completion_cache")
-            )
-        if "third_party_apps" in next_data:
-            next_data["third_party_apps"] = _normalize_third_party_apps_settings(next_data.get("third_party_apps"))
-        if "proxy_runtime" in next_data:
-            incoming_runtime = next_data.get("proxy_runtime")
-            if isinstance(incoming_runtime, dict):
-                previous_clearance = self.get_proxy_runtime_settings().get("clearance")
-                if isinstance(previous_clearance, dict):
-                    incoming_runtime = dict(incoming_runtime)
-                    incoming_runtime["_existing_cf_cookies"] = previous_clearance.get("cf_cookies")
-                    incoming_runtime["_existing_cf_clearance"] = previous_clearance.get("cf_clearance")
-            next_data["proxy_runtime"] = _normalize_proxy_runtime_settings(incoming_runtime)
-        if "proxy" in (data or {}):
-            next_data["proxy"] = _normalize_proxy_settings(next_data.get("proxy"))
-        next_data.pop("backup_state", None)
-        self.data = next_data
-        self._save()
-        return self.get()
+        with self._lock:
+            next_data = dict(self.data)
+            next_data.update(dict(data or {}))
+            if "backup" in next_data:
+                next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
+            if "image_storage" in next_data:
+                next_data["image_storage"] = _normalize_image_storage_settings(next_data.get("image_storage"))
+                _validate_image_storage_settings(next_data["image_storage"])
+            if "chat_completion_cache" in next_data:
+                next_data["chat_completion_cache"] = _normalize_chat_completion_cache_settings(
+                    next_data.get("chat_completion_cache")
+                )
+            if "third_party_apps" in next_data:
+                next_data["third_party_apps"] = _normalize_third_party_apps_settings(next_data.get("third_party_apps"))
+            if "proxy_runtime" in next_data:
+                incoming_runtime = next_data.get("proxy_runtime")
+                if isinstance(incoming_runtime, dict):
+                    previous_clearance = self.get_proxy_runtime_settings().get("clearance")
+                    if isinstance(previous_clearance, dict):
+                        incoming_runtime = dict(incoming_runtime)
+                        incoming_runtime["_existing_cf_cookies"] = previous_clearance.get("cf_cookies")
+                        incoming_runtime["_existing_cf_clearance"] = previous_clearance.get("cf_clearance")
+                next_data["proxy_runtime"] = _normalize_proxy_runtime_settings(incoming_runtime)
+            if "proxy" in (data or {}):
+                next_data["proxy"] = _normalize_proxy_settings(next_data.get("proxy"))
+            if "account_proxy_list" in (data or {}):
+                previous_list = _normalize_account_proxy_list(self.data.get("account_proxy_list"))
+                next_list = _normalize_account_proxy_list(next_data.get("account_proxy_list"))
+                next_data["account_proxy_list"] = next_list
+                if next_list != previous_list:
+                    next_data["account_proxy_rr_index"] = 0
+                    next_data["account_proxy_rr_count"] = 0
+            if "accounts_per_proxy" in (data or {}):
+                previous_per_proxy = self.accounts_per_proxy
+                try:
+                    next_per_proxy = max(1, int(next_data.get("accounts_per_proxy", DEFAULT_ACCOUNTS_PER_PROXY)))
+                except (TypeError, ValueError):
+                    next_per_proxy = DEFAULT_ACCOUNTS_PER_PROXY
+                next_data["accounts_per_proxy"] = next_per_proxy
+                # 只有限额真的变了才清计数；普通保存配置不应打断轮询
+                if next_per_proxy != previous_per_proxy:
+                    next_data["account_proxy_rr_count"] = 0
+            next_data.pop("backup_state", None)
+            self.data = next_data
+            self._save()
+            return self.get()
 
     def get_backup_settings(self) -> dict[str, object]:
         return _normalize_backup_settings(self.data.get("backup"))

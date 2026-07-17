@@ -203,6 +203,13 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: normalizeProxy(config.proxy),
+    account_proxy_list: Array.isArray(config.account_proxy_list)
+      ? config.account_proxy_list.map((item) => String(item || "").trim()).filter(Boolean)
+      : String(config.account_proxy_list || "")
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+    accounts_per_proxy: Math.max(1, Number(config.accounts_per_proxy) || 1),
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
@@ -270,6 +277,7 @@ function normalizeFiles(items: CPARemoteFile[]) {
 
 type SettingsStore = {
   config: SettingsConfig | null;
+  accountProxyListText: string;
   isLoadingConfig: boolean;
   isSavingConfig: boolean;
   backups: BackupItem[];
@@ -328,6 +336,8 @@ type SettingsStore = {
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
   setProxyField: <K extends "interval_secs" | "rounds">(key: K, value: string | number) => void;
+  setAccountProxyListText: (value: string) => void;
+  setAccountsPerProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
   setGlobalSystemPrompt: (value: string) => void;
   setSensitiveWordsText: (value: string) => void;
@@ -385,6 +395,7 @@ type SettingsStore = {
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   config: null,
+  accountProxyListText: "",
   isLoadingConfig: true,
   isSavingConfig: false,
   backups: [],
@@ -445,6 +456,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const normalized = normalizeConfig(data.config);
       set({
         config: normalized,
+        accountProxyListText: normalized.account_proxy_list.join("\n"),
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载系统配置失败");
@@ -482,6 +494,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             rounds: normalized.rounds,
           };
         })(),
+        account_proxy_list: (config.account_proxy_list || [])
+          .map((item) => String(item || "").trim())
+          .filter(Boolean),
+        accounts_per_proxy: Math.max(1, Number(config.accounts_per_proxy) || 1),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
         sensitive_words: (config.sensitive_words || []).map((item) => String(item).trim()).filter(Boolean),
@@ -539,8 +555,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           passphrase: String(config.backup?.passphrase || "").trim(),
         },
       });
+      const normalized = normalizeConfig(data.config);
       set({
-        config: normalizeConfig(data.config),
+        config: normalized,
+        accountProxyListText: normalized.account_proxy_list.join("\n"),
       });
       window.dispatchEvent(new Event("third-party-apps-updated"));
       toast.success("配置已保存");
@@ -649,6 +667,39 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             ...current,
             [key]: Number.isFinite(numeric) ? numeric : current[key],
           },
+        },
+      };
+    });
+  },
+
+  setAccountProxyListText: (value) => {
+    set((state) => {
+      if (!state.config) {
+        return {};
+      }
+      return {
+        accountProxyListText: value,
+        config: {
+          ...state.config,
+          account_proxy_list: value
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean),
+        },
+      };
+    });
+  },
+
+  setAccountsPerProxy: (value) => {
+    set((state) => {
+      if (!state.config) {
+        return {};
+      }
+      const numeric = Number(value);
+      return {
+        config: {
+          ...state.config,
+          accounts_per_proxy: Number.isFinite(numeric) && numeric >= 1 ? Math.floor(numeric) : 1,
         },
       };
     });
