@@ -5,7 +5,7 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Iterator
 
 import tiktoken
@@ -123,8 +123,33 @@ def is_image_sse_stream_error(message: str, exc: BaseException | None = None) ->
     )
 
 
-def image_stream_error_message(message: str) -> str:
+LONG_IMAGE_PROMPT_CHARACTERS = 20_000
+EMPTY_UPSTREAM_CONVERSATION_500_RE = re.compile(
+    r"/backend-api/f/conversation failed:\s*status=500,\s*body=\s*$",
+    re.IGNORECASE,
+)
+FORCE_IMAGE_GENERATION_INSTRUCTION = (
+    "\n\nIMPORTANT: Generate the requested image now. Do not return text, explanations, "
+    "questions, plans, or tool-call parameters. Use the image generation tool and return "
+    "only the generated image."
+)
+
+
+def is_empty_upstream_conversation_500(message: str) -> bool:
+    return bool(EMPTY_UPSTREAM_CONVERSATION_500_RE.search(str(message or "")))
+
+
+def force_image_generation_prompt(prompt: str) -> str:
+    return f"{str(prompt or '').rstrip()}{FORCE_IMAGE_GENERATION_INSTRUCTION}"
+
+
+def image_stream_error_message(message: str, prompt: str = "") -> str:
     text = str(message or "")
+    if (
+        len(str(prompt or "").strip()) > LONG_IMAGE_PROMPT_CHARACTERS
+        and is_empty_upstream_conversation_500(text)
+    ):
+        return "The image prompt may be too long. Please shorten it and try again."
     if is_token_invalid_error(text):
         return "image generation failed"
     if "sse read timed out" in text.lower():
@@ -1268,6 +1293,7 @@ def _generate_single_image(
     content_policy_retry_count = 0
     sse_stream_retry_count = 0
     account_email = ""
+    effective_request = request
 
     while True:
         token = ""
@@ -1313,7 +1339,7 @@ def _generate_single_image(
                 backend.progress_callback = request.progress_callback
             stream_fn = stream_codex_image_outputs if is_codex_image_model(request.model) else stream_image_outputs
             outputs: list[ImageOutput] = []
-            for output in stream_fn(backend, request, index, total):
+            for output in stream_fn(backend, effective_request, index, total):
                 if account_email and not output.account_email:
                     output.account_email = account_email
                 if output.kind == "message" and request.message_as_error:
@@ -1429,12 +1455,17 @@ def _generate_single_image(
             if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token:
                 text_reply_retry_count += 1
                 if text_reply_retry_count <= MAX_TEXT_REPLY_RETRIES:
+                    effective_request = replace(
+                        request,
+                        prompt=force_image_generation_prompt(request.prompt),
+                    )
                     logger.warning({
                         "event": "image_model_text_reply_retry",
                         "request_token": token,
                         "account_email": account_email,
                         "retry_count": text_reply_retry_count,
                         "index": index,
+                        "force_image_generation_instruction": True,
                         "error": error_text[:200],
                     })
                     continue
@@ -1542,7 +1573,11 @@ def _generate_single_image(
                     "retry_count": sse_stream_retry_count,
                     "index": index,
                 })
-            raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
+            raise ImageGenerationError(
+                image_stream_error_message(last_error, request.prompt),
+                account_email=account_email,
+                conversation_id="",
+            ) from exc
         finally:
             if backend is not None:
                 backend.close()
