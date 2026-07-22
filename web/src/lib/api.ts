@@ -66,6 +66,8 @@ export type Model = {
 type AccountListResponse = {
   items: Account[];
   invalid_account_count: number;
+  invalid_account_success_total?: number;
+  invalid_account_recent_success_total?: number;
 };
 
 type ModelListResponse = {
@@ -88,6 +90,8 @@ export type AccountRefreshResponse = {
   refreshed: number;
   relogined?: number;
   invalid_account_count?: number;
+  invalid_account_success_total?: number;
+  invalid_account_recent_success_total?: number;
   errors: Array<{ access_token: string; error: string }>;
 };
 
@@ -159,6 +163,7 @@ export type ThirdPartyAppsSettings = {
 };
 
 export type GlobalProxySettings = {
+  enabled: boolean;
   url: string;
   interval_secs: number;
   rounds: number;
@@ -167,6 +172,7 @@ export type GlobalProxySettings = {
 export type SettingsConfig = {
   proxy: GlobalProxySettings;
   account_proxy_list?: string[];
+  account_proxy_list_enabled?: boolean;
   accounts_per_proxy?: number | string;
   base_url?: string;
   global_system_prompt?: string;
@@ -396,7 +402,11 @@ export async function fetchAccounts() {
 }
 
 export async function resetInvalidAccountStats() {
-  return httpRequest<{ invalid_account_count: number }>("/api/accounts/stats/invalid/reset", {
+  return httpRequest<{
+    invalid_account_count: number;
+    invalid_account_success_total: number;
+    invalid_account_recent_success_total: number;
+  }>("/api/accounts/stats/invalid/reset", {
     method: "POST",
   });
 }

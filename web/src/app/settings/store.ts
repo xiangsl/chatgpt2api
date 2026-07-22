@@ -45,6 +45,7 @@ export const PAGE_SIZE_OPTIONS = ["50", "100", "200"] as const;
 export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
 
 const DEFAULT_PROXY: GlobalProxySettings = {
+  enabled: false,
   url: "",
   interval_secs: 2,
   rounds: 3,
@@ -126,6 +127,7 @@ function normalizeProxy(value: unknown): GlobalProxySettings {
   const source = typeof value === "object" && value !== null ? value as Partial<GlobalProxySettings> : {};
   return {
     ...DEFAULT_PROXY,
+    enabled: Boolean(source.enabled),
     url: String(source.url || ""),
     interval_secs: Math.max(0, Number(source.interval_secs ?? DEFAULT_PROXY.interval_secs) || 0),
     rounds: Math.max(1, Number(source.rounds ?? DEFAULT_PROXY.rounds) || 1),
@@ -209,6 +211,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
           .split(/\r?\n/)
           .map((item) => item.trim())
           .filter(Boolean),
+    account_proxy_list_enabled: Boolean(config.account_proxy_list_enabled),
     accounts_per_proxy: Math.max(1, Number(config.accounts_per_proxy) || 1),
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
@@ -335,8 +338,9 @@ type SettingsStore = {
   setAutoReloginAfterRefresh: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
-  setProxyField: <K extends "interval_secs" | "rounds">(key: K, value: string | number) => void;
+  setProxyField: <K extends "enabled" | "interval_secs" | "rounds">(key: K, value: GlobalProxySettings[K] | string | number | boolean) => void;
   setAccountProxyListText: (value: string) => void;
+  setAccountProxyListEnabled: (value: boolean) => void;
   setAccountsPerProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
   setGlobalSystemPrompt: (value: string) => void;
@@ -489,6 +493,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         proxy: (() => {
           const normalized = normalizeProxy(config.proxy);
           return {
+            enabled: Boolean(normalized.enabled),
             url: normalized.url.trim(),
             interval_secs: normalized.interval_secs,
             rounds: normalized.rounds,
@@ -497,6 +502,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         account_proxy_list: (config.account_proxy_list || [])
           .map((item) => String(item || "").trim())
           .filter(Boolean),
+        account_proxy_list_enabled: Boolean(config.account_proxy_list_enabled),
         accounts_per_proxy: Math.max(1, Number(config.accounts_per_proxy) || 1),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
@@ -659,6 +665,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         return {};
       }
       const current = normalizeProxy(state.config.proxy);
+      if (key === "enabled") {
+        return {
+          config: {
+            ...state.config,
+            proxy: {
+              ...current,
+              enabled: Boolean(value),
+            },
+          },
+        };
+      }
       const numeric = typeof value === "number" ? value : Number(value);
       return {
         config: {
@@ -685,6 +702,20 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             .split(/\r?\n/)
             .map((item) => item.trim())
             .filter(Boolean),
+        },
+      };
+    });
+  },
+
+  setAccountProxyListEnabled: (value) => {
+    set((state) => {
+      if (!state.config) {
+        return {};
+      }
+      return {
+        config: {
+          ...state.config,
+          account_proxy_list_enabled: Boolean(value),
         },
       };
     });

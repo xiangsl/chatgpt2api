@@ -43,8 +43,21 @@ class FakeAccountService:
     def get_invalid_account_total(self) -> int:
         return 4
 
+    def get_invalid_account_success_total(self) -> int:
+        return 11
+
+    def get_invalid_account_recent_success_total(self) -> int:
+        return 8
+
     def reset_invalid_account_total(self) -> int:
         return 0
+
+    def reset_invalid_account_stats(self) -> dict[str, int]:
+        return {
+            "invalid_account_count": 0,
+            "invalid_account_success_total": 0,
+            "invalid_account_recent_success_total": 0,
+        }
 
 
 class AccountsImportApiTests(unittest.TestCase):
@@ -81,7 +94,15 @@ class AccountsImportApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"items": [], "invalid_account_count": 4})
+        self.assertEqual(
+            response.json(),
+            {
+                "items": [],
+                "invalid_account_count": 4,
+                "invalid_account_success_total": 11,
+                "invalid_account_recent_success_total": 8,
+            },
+        )
 
     def test_import_access_token_multiple(self) -> None:
         response = self.client.post(
@@ -161,7 +182,14 @@ class AccountsImportApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"active_count": 3, "total_quota": 12})
+        self.assertEqual(
+            response.json(),
+            {
+                "active_count": 3,
+                "total_quota": 12,
+                "invalid_account_recent_success_total": 8,
+            },
+        )
 
     def test_reset_invalid_account_stats(self) -> None:
         response = self.client.post(
@@ -170,7 +198,14 @@ class AccountsImportApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json(), {"invalid_account_count": 0})
+        self.assertEqual(
+            response.json(),
+            {
+                "invalid_account_count": 0,
+                "invalid_account_success_total": 0,
+                "invalid_account_recent_success_total": 0,
+            },
+        )
 
 
 if __name__ == "__main__":

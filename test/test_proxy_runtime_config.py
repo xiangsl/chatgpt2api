@@ -25,7 +25,9 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
         return tmp_dir, ConfigStore(path)
 
     def test_defaults_are_safe_and_included_in_public_config(self) -> None:
-        tmp_dir, store = self._make_store({"proxy": {"url": " http://proxy.example:8080 ", "interval_secs": 2, "rounds": 3}})
+        tmp_dir, store = self._make_store(
+            {"proxy": {"enabled": True, "url": " http://proxy.example:8080 ", "interval_secs": 2, "rounds": 3}}
+        )
         with tmp_dir:
             expected_default = copy.deepcopy(DEFAULT_PROXY_RUNTIME)
             runtime = store.get_proxy_runtime_settings()
@@ -38,7 +40,7 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
             public_config = store.get()
             self.assertEqual(
                 public_config["proxy"],
-                {"url": "http://proxy.example:8080", "interval_secs": 2, "rounds": 3},
+                {"enabled": True, "url": "http://proxy.example:8080", "interval_secs": 2, "rounds": 3},
             )
             self.assertEqual(public_config["proxy_runtime"], expected_public)
             self.assertNotIn("auth-key", public_config)
@@ -229,22 +231,33 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
             )
             public = store.get()
             self.assertEqual(public["proxy"], copy.deepcopy(DEFAULT_PROXY))
+            self.assertFalse(public["account_proxy_list_enabled"])
+            self.assertEqual(store.get_proxy_settings(), "")
 
             updated = store.update(
-                {"proxy": {"url": " http://proxy.example:8080 ", "interval_secs": "5", "rounds": 0}}
+                {"proxy": {"enabled": True, "url": " http://proxy.example:8080 ", "interval_secs": "5", "rounds": 0}}
             )
             self.assertEqual(
                 updated["proxy"],
-                {"url": "http://proxy.example:8080", "interval_secs": 5, "rounds": 1},
+                {"enabled": True, "url": "http://proxy.example:8080", "interval_secs": 5, "rounds": 1},
             )
+            self.assertEqual(store.get_proxy_settings(), "http://proxy.example:8080")
             self.assertEqual(
                 _normalize_proxy_settings({"url": "", "interval_secs": -1, "rounds": "abc"}),
-                {"url": "", "interval_secs": 0, "rounds": 3},
+                {"enabled": False, "url": "", "interval_secs": 0, "rounds": 3},
             )
             raw = json.loads(store.path.read_text(encoding="utf-8"))
             self.assertEqual(raw["proxy"]["url"], "http://proxy.example:8080")
+            self.assertTrue(raw["proxy"]["enabled"])
             self.assertEqual(raw["proxy"]["interval_secs"], 5)
             self.assertEqual(raw["proxy"]["rounds"], 1)
+
+            disabled = store.update({"proxy": {"enabled": False, "url": "http://proxy.example:8080"}})
+            self.assertFalse(disabled["proxy"]["enabled"])
+            self.assertEqual(store.get_proxy_settings(), "")
+
+            enabled_list = store.update({"account_proxy_list_enabled": True})
+            self.assertTrue(enabled_list["account_proxy_list_enabled"])
 
 
 if __name__ == "__main__":

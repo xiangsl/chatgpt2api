@@ -7,6 +7,7 @@ import secrets
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Condition, Lock, Thread
@@ -60,6 +61,8 @@ class AccountService:
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
         self._invalid_account_total = self._load_invalid_account_total()
+        self._invalid_account_success_total = self._load_invalid_account_success_total()
+        self._recent_invalid_successes = self._load_recent_invalid_successes()
 
     def _get_cumulative_file(self) -> Path:
         from services.config import DATA_DIR
@@ -84,6 +87,14 @@ class AccountService:
         from services.config import DATA_DIR
         return DATA_DIR / ".invalid_account_total"
 
+    def _get_invalid_account_success_total_file(self) -> Path:
+        from services.config import DATA_DIR
+        return DATA_DIR / ".invalid_account_success_total"
+
+    def _get_recent_invalid_successes_file(self) -> Path:
+        from services.config import DATA_DIR
+        return DATA_DIR / ".invalid_account_recent_successes"
+
     def _load_invalid_account_total(self) -> int:
         try:
             path = self._get_invalid_account_total_file()
@@ -93,28 +104,103 @@ class AccountService:
             pass
         return 0
 
+    def _load_invalid_account_success_total(self) -> int:
+        try:
+            path = self._get_invalid_account_success_total_file()
+            if path.exists():
+                return max(0, int(path.read_text().strip()))
+        except Exception:
+            pass
+        return 0
+
+    def _load_recent_invalid_successes(self) -> deque[int]:
+        values: list[int] = []
+        try:
+            path = self._get_recent_invalid_successes_file()
+            if path.exists():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    for item in raw:
+                        try:
+                            values.append(max(0, int(item)))
+                        except (TypeError, ValueError):
+                            continue
+        except Exception:
+            values = []
+        return deque(values[-10:], maxlen=10)
+
     def _save_invalid_account_total(self) -> None:
         try:
             self._get_invalid_account_total_file().write_text(str(self._invalid_account_total))
         except Exception:
             pass
 
-    def _record_invalid_account_removal_locked(self, count: int = 1) -> None:
-        if count <= 0:
+    def _save_invalid_account_success_total(self) -> None:
+        try:
+            self._get_invalid_account_success_total_file().write_text(str(self._invalid_account_success_total))
+        except Exception:
+            pass
+
+    def _save_recent_invalid_successes(self) -> None:
+        try:
+            self._get_recent_invalid_successes_file().write_text(
+                json.dumps(list(self._recent_invalid_successes), ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _account_success_count(account: dict | None) -> int:
+        if not isinstance(account, dict):
+            return 0
+        try:
+            return max(0, int(account.get("success") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def _record_invalid_account_removal_locked(self, success_values: list[int]) -> None:
+        values = [max(0, int(item)) for item in success_values]
+        if not values:
             return
-        self._invalid_account_total += count
+        self._invalid_account_total += len(values)
+        success_sum = sum(values)
+        if success_sum > 0:
+            self._invalid_account_success_total += success_sum
+        for value in values:
+            self._recent_invalid_successes.append(value)
         self._save_invalid_account_total()
+        self._save_invalid_account_success_total()
+        self._save_recent_invalid_successes()
 
     def get_invalid_account_total(self) -> int:
         with self._lock:
             return self._invalid_account_total
 
+    def get_invalid_account_success_total(self) -> int:
+        with self._lock:
+            return self._invalid_account_success_total
+
+    def get_invalid_account_recent_success_total(self) -> int:
+        with self._lock:
+            return sum(self._recent_invalid_successes)
+
     def reset_invalid_account_total(self) -> int:
+        return int(self.reset_invalid_account_stats()["invalid_account_count"])
+
+    def reset_invalid_account_stats(self) -> dict[str, int]:
         with self._lock:
             self._invalid_account_total = 0
+            self._invalid_account_success_total = 0
+            self._recent_invalid_successes.clear()
             self._save_invalid_account_total()
-            return self._invalid_account_total
-
+            self._save_invalid_account_success_total()
+            self._save_recent_invalid_successes()
+            return {
+                "invalid_account_count": self._invalid_account_total,
+                "invalid_account_success_total": self._invalid_account_success_total,
+                "invalid_account_recent_success_total": 0,
+            }
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -1342,9 +1428,16 @@ class AccountService:
             return {"removed": 0, "items": self.list_accounts()}
         with self._lock:
             target_set = {self._resolve_access_token_locked(token) for token in target_set if token}
-            removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
-            if count_as_invalid:
-                self._record_invalid_account_removal_locked(removed)
+            removed = 0
+            success_values: list[int] = []
+            for token in target_set:
+                account = self._accounts.pop(token, None)
+                if account is None:
+                    continue
+                removed += 1
+                success_values.append(self._account_success_count(account))
+            if count_as_invalid and success_values:
+                self._record_invalid_account_removal_locked(success_values)
             for token in target_set:
                 self._image_inflight.pop(token, None)
                 self._image_inflight_times.pop(token, None)
@@ -1376,7 +1469,7 @@ class AccountService:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 if self._accounts.pop(access_token, None) is not None:
-                    self._record_invalid_account_removal_locked()
+                    self._record_invalid_account_removal_locked([self._account_success_count(account)])
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
@@ -1510,7 +1603,7 @@ class AccountService:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 if self._accounts.pop(access_token, None) is not None:
-                    self._record_invalid_account_removal_locked()
+                    self._record_invalid_account_removal_locked([self._account_success_count(account)])
                 self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
@@ -1676,6 +1769,8 @@ class AccountService:
                 "items": items,
                 "relogined": 0,
                 "invalid_account_count": self.get_invalid_account_total(),
+                "invalid_account_success_total": self.get_invalid_account_success_total(),
+                "invalid_account_recent_success_total": self.get_invalid_account_recent_success_total(),
             }
             if progress_id:
                 self.finish_refresh_progress(progress_id, result)
@@ -1750,6 +1845,8 @@ class AccountService:
             "items": self.list_accounts(),
             "relogined": relogined,
             "invalid_account_count": self.get_invalid_account_total(),
+            "invalid_account_success_total": self.get_invalid_account_success_total(),
+            "invalid_account_recent_success_total": self.get_invalid_account_recent_success_total(),
         }
 
         if progress_id:
@@ -1887,6 +1984,8 @@ class AccountService:
             "total": total,
             "cumulative_total": self._cumulative_total,
             "invalid_removed": self._invalid_account_total,
+            "invalid_success_total": self._invalid_account_success_total,
+            "invalid_recent_success_total": sum(self._recent_invalid_successes),
             "active": active,
             "limited": limited,
             "abnormal": abnormal,

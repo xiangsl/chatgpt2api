@@ -214,6 +214,29 @@ const docs: ApiDoc[] = [
     example: (baseUrl: string, _key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/files/<file_path> -o result.zip`,
   },
   {
+    title: "修改代理配置",
+    method: "POST",
+    path: "/api/proxy/settings",
+    icon: KeyRound,
+    input: [
+      ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
+      ["proxy_enabled", "boolean | -1", "可选，是否启用全局代理；传 -1 表示关闭。"],
+      ["proxy_url", "string | -1", "可选，全局代理地址；传 -1 表示清空。"],
+      ["account_proxy_list_enabled", "boolean | -1", "可选，是否启用账号代理列表；传 -1 表示关闭。"],
+      ["account_proxy_list", "string[] | string | -1", "可选，账号代理列表（数组或换行分隔字符串）；传 -1 表示清空。"],
+    ],
+    output: [
+      ["proxy", "object", "当前全局代理配置，含 enabled / url / interval_secs / rounds。"],
+      ["account_proxy_list_enabled", "boolean", "账号代理列表是否启用。"],
+      ["account_proxy_list", "string[]", "当前账号代理列表。"],
+      ["accounts_per_proxy", "number", "每个代理连续分配的账号数量。"],
+    ],
+    example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/proxy/settings \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"proxy_enabled":true,"proxy_url":"http://127.0.0.1:7890","account_proxy_list_enabled":true,"account_proxy_list":["http://a:8080","http://b:8080"]}'`,
+  },
+  {
     title: "Access Token 导入",
     method: "POST",
     path: "/api/accounts/import/access-token",
@@ -269,6 +292,7 @@ const docs: ApiDoc[] = [
     output: [
       ["active_count", "number", "当前状态为「正常」的账号数量。"],
       ["total_quota", "number", "所有正常账号的剩余图片额度总和。"],
+      ["invalid_account_recent_success_total", "number", "最近 10 个失效账号的出图合计。"],
     ],
     example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/accounts/stats/normal \\
   -H "Authorization: Bearer ${key}"`,
@@ -327,7 +351,7 @@ export function ApiDocsCard() {
             接口接入说明
           </div>
           <p className="mt-1 text-xs leading-6 text-stone-500">
-            第三方应用按 OpenAI 兼容接口接入；文件任务与账号导入接口也使用同一套 Bearer 鉴权，账号导入需管理员密钥。
+            第三方应用按 OpenAI 兼容接口接入；文件任务、账号导入与代理配置接口也使用同一套 Bearer 鉴权，账号导入与代理配置需管理员密钥。
           </p>
         </div>
 

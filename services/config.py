@@ -78,12 +78,14 @@ DEFAULT_PROXY_RUNTIME = {
 }
 
 DEFAULT_PROXY = {
+    "enabled": False,
     "url": "",
     "interval_secs": 2,
     "rounds": 3,
 }
 
 DEFAULT_ACCOUNTS_PER_PROXY = 1
+DEFAULT_ACCOUNT_PROXY_LIST_ENABLED = False
 
 
 def _normalize_account_proxy_list(value: object) -> list[str]:
@@ -243,9 +245,18 @@ def _normalize_status_codes(value: object) -> list[int]:
     return normalized
 
 
+def _is_clear_sentinel(value: object) -> bool:
+    if value == -1:
+        return True
+    if isinstance(value, str) and value.strip() == "-1":
+        return True
+    return False
+
+
 def _normalize_proxy_settings(value: object) -> dict[str, object]:
     source = value if isinstance(value, dict) else {}
     return {
+        "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_PROXY["enabled"])),
         "url": str(source.get("url") or "").strip(),
         "interval_secs": _normalize_positive_int(
             source.get("interval_secs"),
@@ -635,6 +646,7 @@ class ConfigStore:
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy"] = self.get_proxy_config()
         data["account_proxy_list"] = self.account_proxy_list
+        data["account_proxy_list_enabled"] = self.account_proxy_list_enabled
         data["accounts_per_proxy"] = self.accounts_per_proxy
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
         data["third_party_apps"] = self.get_third_party_apps_settings()
@@ -644,6 +656,13 @@ class ConfigStore:
     @property
     def account_proxy_list(self) -> list[str]:
         return _normalize_account_proxy_list(self.data.get("account_proxy_list"))
+
+    @property
+    def account_proxy_list_enabled(self) -> bool:
+        return _normalize_bool(
+            self.data.get("account_proxy_list_enabled"),
+            DEFAULT_ACCOUNT_PROXY_LIST_ENABLED,
+        )
 
     @property
     def accounts_per_proxy(self) -> int:
@@ -656,12 +675,14 @@ class ConfigStore:
         """按持久化的轮询游标分配账号代理。
 
         规则：
-        - 列表为空返回空列表
+        - 未启用或列表为空返回空列表
         - 记下当前代理及已分配数量，每次分配后递增
         - 当前代理达到 accounts_per_proxy 后切到下一个，并将计数清零
           （切换后即可继续分配；循环回第一个代理时也能再次接收）
         """
         with self._lock:
+            if not self.account_proxy_list_enabled:
+                return []
             proxies = _normalize_account_proxy_list(self.data.get("account_proxy_list"))
             if not proxies or count <= 0:
                 return []
@@ -701,8 +722,63 @@ class ConfigStore:
     def get_proxy_config(self) -> dict[str, object]:
         return _normalize_proxy_settings(self.data.get("proxy"))
 
+    def get_public_proxy_settings(self) -> dict[str, object]:
+        return {
+            "proxy": self.get_proxy_config(),
+            "account_proxy_list_enabled": self.account_proxy_list_enabled,
+            "account_proxy_list": self.account_proxy_list,
+            "accounts_per_proxy": self.accounts_per_proxy,
+        }
+
+    def patch_proxy_settings(self, patch: dict[str, object] | None = None) -> dict[str, object]:
+        """按外部接口规则部分更新代理配置。
+
+        - 字段缺失：忽略
+        - 值为 -1 / "-1"：置空（布尔为 False，字符串为空，列表为空）
+        - 其他值：覆盖写入
+        """
+        source = dict(patch or {})
+        updates: dict[str, object] = {}
+
+        proxy_keys = {"proxy_enabled", "proxy_url"}
+        if proxy_keys & source.keys():
+            proxy = dict(self.get_proxy_config())
+            if "proxy_enabled" in source:
+                value = source.get("proxy_enabled")
+                if value is not None:
+                    proxy["enabled"] = False if _is_clear_sentinel(value) else _normalize_bool(value, False)
+            if "proxy_url" in source:
+                value = source.get("proxy_url")
+                if value is not None:
+                    proxy["url"] = "" if _is_clear_sentinel(value) else str(value).strip()
+            updates["proxy"] = proxy
+
+        if "account_proxy_list_enabled" in source:
+            value = source.get("account_proxy_list_enabled")
+            if value is not None:
+                updates["account_proxy_list_enabled"] = (
+                    False if _is_clear_sentinel(value) else _normalize_bool(value, False)
+                )
+
+        if "account_proxy_list" in source:
+            value = source.get("account_proxy_list")
+            if value is not None:
+                if _is_clear_sentinel(value):
+                    updates["account_proxy_list"] = []
+                elif isinstance(value, (str, list)):
+                    updates["account_proxy_list"] = _normalize_account_proxy_list(value)
+                else:
+                    raise ValueError("account_proxy_list 需为字符串、字符串数组，或 -1")
+
+        if updates:
+            self.update(updates)
+        return self.get_public_proxy_settings()
+
     def get_proxy_settings(self) -> str:
-        return str(self.get_proxy_config().get("url") or "").strip()
+        proxy = self.get_proxy_config()
+        if not bool(proxy.get("enabled")):
+            return ""
+        return str(proxy.get("url") or "").strip()
 
     def get_proxy_retry_settings(self) -> dict[str, object]:
         proxy = self.get_proxy_config()
@@ -755,6 +831,11 @@ class ConfigStore:
                 next_data["proxy_runtime"] = _normalize_proxy_runtime_settings(incoming_runtime)
             if "proxy" in (data or {}):
                 next_data["proxy"] = _normalize_proxy_settings(next_data.get("proxy"))
+            if "account_proxy_list_enabled" in (data or {}):
+                next_data["account_proxy_list_enabled"] = _normalize_bool(
+                    next_data.get("account_proxy_list_enabled"),
+                    DEFAULT_ACCOUNT_PROXY_LIST_ENABLED,
+                )
             if "account_proxy_list" in (data or {}):
                 previous_list = _normalize_account_proxy_list(self.data.get("account_proxy_list"))
                 next_list = _normalize_account_proxy_list(next_data.get("account_proxy_list"))

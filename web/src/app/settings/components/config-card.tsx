@@ -37,6 +37,7 @@ export function ConfigCard() {
   const setProxyField = useSettingsStore((state) => state.setProxyField);
   const accountProxyListText = useSettingsStore((state) => state.accountProxyListText);
   const setAccountProxyListText = useSettingsStore((state) => state.setAccountProxyListText);
+  const setAccountProxyListEnabled = useSettingsStore((state) => state.setAccountProxyListEnabled);
   const setAccountsPerProxy = useSettingsStore((state) => state.setAccountsPerProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
   const setGlobalSystemPrompt = useSettingsStore((state) => state.setGlobalSystemPrompt);
@@ -100,7 +101,13 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">单位分钟，控制账号自动刷新频率。</p>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">全局代理</label>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              全局代理
+              <Checkbox
+                checked={Boolean(config?.proxy?.enabled)}
+                onCheckedChange={(checked) => setProxyField("enabled", Boolean(checked))}
+              />
+            </label>
             <Input
               value={String(config?.proxy?.url || "")}
               onChange={(event) => {
@@ -111,7 +118,7 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs leading-5 text-stone-500">
-              留空表示不使用代理。支持 http/https/socks5。示例 http://user:pass@127.0.0.1:7890、socks5://127.0.0.1:1080；也可粘贴 主机:端口:账号:密码。账号密码含 @/: 时需 URL 编码。GPT 上游无账号代理时走此代理；图片下载/上传直连。
+              勾选后启用。留空表示不使用代理。支持 http/https/socks5。示例 http://user:pass@127.0.0.1:7890、socks5://127.0.0.1:1080；也可粘贴 主机:端口:账号:密码。账号密码含 @/: 时需 URL 编码。GPT 上游无账号代理时走此代理；图片下载/上传直连。
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -161,7 +168,13 @@ export function ConfigCard() {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-sm text-stone-700">账号代理列表</label>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              账号代理列表
+              <Checkbox
+                checked={Boolean(config?.account_proxy_list_enabled)}
+                onCheckedChange={(checked) => setAccountProxyListEnabled(Boolean(checked))}
+              />
+            </label>
             <Textarea
               value={accountProxyListText}
               onChange={(event) => setAccountProxyListText(event.target.value)}
@@ -169,7 +182,7 @@ export function ConfigCard() {
               className="min-h-28 rounded-xl border-stone-200 bg-white font-mono text-xs"
             />
             <p className="text-xs text-stone-500">
-              Access Token 导入时按轮询分配给新账号；留空则账号不设置代理。
+              勾选后，Access Token 导入时按轮询分配给新账号；留空则账号不设置代理。
             </p>
             <div className="space-y-2 pt-2">
               <label className="text-sm text-stone-700">单代理数量</label>

@@ -253,6 +253,8 @@ def create_router() -> APIRouter:
         return {
             "items": account_service.list_accounts(),
             "invalid_account_count": account_service.get_invalid_account_total(),
+            "invalid_account_success_total": account_service.get_invalid_account_success_total(),
+            "invalid_account_recent_success_total": account_service.get_invalid_account_recent_success_total(),
         }
 
     @router.get("/api/accounts/stats/normal")
@@ -263,12 +265,13 @@ def create_router() -> APIRouter:
         return {
             "active_count": stats["active"],
             "total_quota": stats["total_quota"],
+            "invalid_account_recent_success_total": account_service.get_invalid_account_recent_success_total(),
         }
 
     @router.post("/api/accounts/stats/invalid/reset")
     async def reset_invalid_account_stats(authorization: str | None = Header(default=None)):
         require_admin(authorization)
-        return {"invalid_account_count": account_service.reset_invalid_account_total()}
+        return account_service.reset_invalid_account_stats()
 
     @router.post("/api/accounts")
     async def create_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):

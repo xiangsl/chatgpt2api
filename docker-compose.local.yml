@@ -20,15 +20,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 5G
         reservations:
-          memory: 3G
-    environment:
-      STORAGE_BACKEND: sqlite
-      DATABASE_URL: sqlite:////app/data/accounts.db
+          memory: 5G
+    #environment:
+    #  STORAGE_BACKEND: sqlite
+    #  DATABASE_URL: sqlite:////app/data/accounts.db
     # 存储后端配置 (可选值: json, sqlite, postgres, git)
-    # environment:
-    #   STORAGE_BACKEND: json
+    environment:
+      STORAGE_BACKEND: json
 
     # 数据库配置 (当 STORAGE_BACKEND=sqlite/postgres 时使用)
     #   DATABASE_URL: postgresql://user:password@host:5432/dbname

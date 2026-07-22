@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from services.config import DATA_DIR
 from services.protocol.error_response import anthropic_error_response, openai_error_response
 from utils.helper import anthropic_sse_stream, sse_json_stream
+from utils.log import logger
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
@@ -286,10 +287,12 @@ class LoggedCall:
                 account_email=(account_emails[0] if account_emails else getattr(exc, "account_email", "")),
                 conversation_id=(conversation_ids[0] if conversation_ids else getattr(exc, "conversation_id", "")),
             )
+            # Keep the original exception message for logging; client sanitization
+            # happens in ImageGenerationError.to_openai_error().
             if self.endpoint.startswith("/v1/images") and not hasattr(exc, "to_openai_error"):
-                from services.protocol.conversation import ImageGenerationError, public_image_error_message
+                from services.protocol.conversation import ImageGenerationError
 
-                raise ImageGenerationError(public_image_error_message(str(exc))) from exc
+                raise ImageGenerationError(str(exc) or "image generation failed") from exc
             raise
         finally:
             if not failed:
@@ -331,4 +334,18 @@ class LoggedCall:
         collected_urls = [*(urls or []), *_collect_urls(result)]
         if collected_urls and not self.endpoint.startswith("/v1/search"):
             detail["urls"] = list(dict.fromkeys(collected_urls))
-        log_service.add(LOG_TYPE_CALL, f"{self.summary}{suffix}", detail)
+        summary = f"{self.summary}{suffix}"
+        log_service.add(LOG_TYPE_CALL, summary, detail)
+        # Call logs normally go only to data/logs.jsonl. Also emit failures to
+        # process stdout so Docker/console operators can see the original error
+        # (client responses may still be sanitized separately).
+        if status == "failed" and error:
+            logger.warning({
+                "event": "call_failed",
+                "summary": summary,
+                "endpoint": self.endpoint,
+                "model": self.model,
+                "error": error,
+                "account_email": email,
+                "conversation_id": conv_id,
+            })

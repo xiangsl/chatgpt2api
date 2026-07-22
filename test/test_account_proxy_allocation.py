@@ -21,6 +21,7 @@ class AccountProxyAllocationTests(unittest.TestCase):
             json.dumps(
                 {
                     "auth-key": "test-auth",
+                    "account_proxy_list_enabled": True,
                     "account_proxy_list": ["http://a", "http://b", "http://c"],
                     "accounts_per_proxy": 2,
                     "account_proxy_rr_index": 0,
@@ -44,6 +45,14 @@ class AccountProxyAllocationTests(unittest.TestCase):
                 {"access_token": "t2", "source_type": "web"},
             ],
         )
+
+    def test_disabled_account_proxy_list_does_not_allocate(self) -> None:
+        self.config.data["account_proxy_list_enabled"] = False
+        self.config._save()
+        allocated = self.config.allocate_account_proxies(3)
+        self.assertEqual(allocated, [])
+        self.assertEqual(self.config.data.get("account_proxy_rr_index"), 0)
+        self.assertEqual(self.config.data.get("account_proxy_rr_count"), 0)
 
     def test_persistent_cursor_across_single_imports(self) -> None:
         """一次导入一个时，必须跨请求记住当前代理和已分配数量。"""

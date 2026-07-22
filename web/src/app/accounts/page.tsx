@@ -191,6 +191,8 @@ function AccountsPageContent() {
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [invalidAccountCount, setInvalidAccountCount] = useState(0);
+  const [invalidAccountSuccessTotal, setInvalidAccountSuccessTotal] = useState(0);
+  const [invalidAccountRecentSuccessTotal, setInvalidAccountRecentSuccessTotal] = useState(0);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
@@ -235,6 +237,8 @@ function AccountsPageContent() {
       const data = await fetchAccounts();
       setAccounts(data.items);
       setInvalidAccountCount(data.invalid_account_count);
+      setInvalidAccountSuccessTotal(data.invalid_account_success_total ?? 0);
+      setInvalidAccountRecentSuccessTotal(data.invalid_account_recent_success_total ?? 0);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载账户失败";
@@ -312,6 +316,8 @@ function AccountsPageContent() {
     try {
       const data = await resetInvalidAccountStats();
       setInvalidAccountCount(data.invalid_account_count);
+      setInvalidAccountSuccessTotal(data.invalid_account_success_total ?? 0);
+      setInvalidAccountRecentSuccessTotal(data.invalid_account_recent_success_total ?? 0);
       toast.success("失效账号统计已清空");
     } catch (error) {
       const message = error instanceof Error ? error.message : "清空失效账号统计失败";
@@ -398,6 +404,12 @@ function AccountsPageContent() {
           if (progress.done && progress.result) {
             setAccounts(progress.result.items);
             setInvalidAccountCount(progress.result.invalid_account_count ?? invalidAccountCount);
+            setInvalidAccountSuccessTotal(
+              progress.result.invalid_account_success_total ?? invalidAccountSuccessTotal,
+            );
+            setInvalidAccountRecentSuccessTotal(
+              progress.result.invalid_account_recent_success_total ?? invalidAccountRecentSuccessTotal,
+            );
             setSelectedIds((prev) => prev.filter((id) => progress.result!.items.some((item) => item.access_token === id)));
           }
         });
@@ -503,6 +515,10 @@ function AccountsPageContent() {
       // 刷新完成，更新数据
       setAccounts(data.items);
       setInvalidAccountCount(data.invalid_account_count ?? invalidAccountCount);
+      setInvalidAccountSuccessTotal(data.invalid_account_success_total ?? invalidAccountSuccessTotal);
+      setInvalidAccountRecentSuccessTotal(
+        data.invalid_account_recent_success_total ?? invalidAccountRecentSuccessTotal,
+      );
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
 
       const relogined = data.relogined ?? 0;
@@ -695,6 +711,8 @@ function AccountsPageContent() {
         const freshData = await fetchAccounts();
         setAccounts(freshData.items);
         setInvalidAccountCount(freshData.invalid_account_count);
+        setInvalidAccountSuccessTotal(freshData.invalid_account_success_total ?? 0);
+        setInvalidAccountRecentSuccessTotal(freshData.invalid_account_recent_success_total ?? 0);
         setSelectedIds((prev) => prev.filter((id) => freshData.items.some((item) => item.access_token === id)));
       } catch { /* 静默失败 */ }
 
@@ -918,27 +936,42 @@ function AccountsPageContent() {
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           {metricCards.map((item) => {
             const Icon = item.icon;
-            const value = item.key === "invalid" ? invalidAccountCount : (refreshSummary ?? summary)[item.key];
+            const isInvalidCard = item.key === "invalid";
+            const value = isInvalidCard
+              ? `${formatCompact(invalidAccountCount)}/${formatCompact(invalidAccountSuccessTotal)}`
+              : (refreshSummary ?? summary)[item.key];
+            const clearDisabled =
+              isClearingInvalidStats ||
+              (invalidAccountCount === 0 &&
+                invalidAccountSuccessTotal === 0 &&
+                invalidAccountRecentSuccessTotal === 0);
             return (
               <Card key={item.key} className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
                 <CardContent className="p-4">
-                  <div className="mb-4 flex items-start justify-between">
-                    <span className="text-xs font-medium text-stone-400">{item.label}</span>
-                    <Icon className="size-4 text-stone-400" />
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-stone-400">{item.label}</span>
+                      {isInvalidCard ? (
+                        <div className="mt-1 text-[11px] leading-4 text-stone-400">
+                          最近10个出图合计 {formatCompact(invalidAccountRecentSuccessTotal)}
+                        </div>
+                      ) : null}
+                    </div>
+                    <Icon className="size-4 shrink-0 text-stone-400" />
                   </div>
                   <div className={cn("text-[1.75rem] font-semibold tracking-tight", item.color)}>
                     <div className="flex items-center gap-2">
-                      <span className={typeof value === "number" ? "" : "text-[1.1rem]"}>
+                      <span className={typeof value === "number" ? "" : isInvalidCard ? "text-[1.35rem]" : "text-[1.1rem]"}>
                         {typeof value === "number" ? formatCompact(value) : value}
                       </span>
-                      {item.key === "invalid" ? (
+                      {isInvalidCard ? (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           className="size-7 text-stone-400 hover:bg-rose-50 hover:text-rose-600"
                           onClick={() => void handleResetInvalidAccountStats()}
-                          disabled={isClearingInvalidStats || invalidAccountCount === 0}
+                          disabled={clearDisabled}
                           title="清空失效账号统计"
                         >
                           {isClearingInvalidStats ? <LoaderCircle className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}

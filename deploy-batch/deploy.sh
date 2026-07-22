@@ -124,6 +124,9 @@ prepare_compose() {
     local port="$1"
     local out="$2"
 
+    # 将端口与容器名中的 ${CHATGPT2API_PORT:-NNNN} 替换为实际端口
+    # 例: "${CHATGPT2API_PORT:-3001}:80" -> "3001:80"
+    #     container_name: chatgpt2api_${CHATGPT2API_PORT:-3001} -> chatgpt2api_3001
     sed "s/\${CHATGPT2API_PORT:-[0-9]*}/${port}/g" "$COMPOSE_FILE" > "$out"
 }
 

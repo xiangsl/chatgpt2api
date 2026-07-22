@@ -35,6 +35,15 @@ class ProxyTestRequest(BaseModel):
     url: str = ""
 
 
+class ProxySettingsPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    proxy_enabled: object | None = None
+    proxy_url: object | None = None
+    account_proxy_list_enabled: object | None = None
+    account_proxy_list: object | None = None
+
+
 class ClearanceTestRequest(BaseModel):
     target_url: str = "https://chatgpt.com"
 
@@ -141,6 +150,22 @@ def create_router(app_version: str) -> APIRouter:
     async def test_proxy_endpoint(body: ProxyTestRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         return {"result": await run_in_threadpool(test_proxy, (body.url or "").strip())}
+
+    @router.get("/api/proxy/settings")
+    async def get_proxy_settings_endpoint(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return config.get_public_proxy_settings()
+
+    @router.post("/api/proxy/settings")
+    async def patch_proxy_settings_endpoint(
+        body: ProxySettingsPatchRequest,
+        authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        try:
+            return config.patch_proxy_settings(body.model_dump(exclude_unset=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
     @router.get("/api/proxy/runtime")
     async def get_proxy_runtime_endpoint(authorization: str | None = Header(default=None)):
