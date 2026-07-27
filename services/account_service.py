@@ -1109,6 +1109,47 @@ class AccountService:
         with self._image_slot_condition:
             return self._cleanup_stale_image_inflight_locked()
 
+    @staticmethod
+    def _image_usage_count(account: dict | None) -> int:
+        """生图使用次数 = 成功次数 + 失败次数。"""
+        if not isinstance(account, dict):
+            return 0
+        try:
+            success = max(0, int(account.get("success") or 0))
+        except (TypeError, ValueError):
+            success = 0
+        try:
+            fail = max(0, int(account.get("fail") or 0))
+        except (TypeError, ValueError):
+            fail = 0
+        return success + fail
+
+    def _pick_preferred_image_token(self, tokens: list[str]) -> str:
+        """优先未使用 -> 使用次数<=3 -> 使用次数<=5，否则轮询。
+
+        同一优先级内优先选在途数更少的账号，尽量避免多线程扎堆同一号。
+        """
+        accounts = [(token, self._accounts.get(token)) for token in tokens]
+
+        def pick_least_inflight(candidates: list[str]) -> str:
+            min_inflight = min(int(self._image_inflight.get(token, 0)) for token in candidates)
+            lowest = [token for token in candidates if int(self._image_inflight.get(token, 0)) == min_inflight]
+            if len(lowest) == 1:
+                return lowest[0]
+            access_token = lowest[self._index % len(lowest)]
+            self._index += 1
+            return access_token
+
+        for max_usage in (0, 3, 5):
+            candidates = [
+                token
+                for token, account in accounts
+                if self._image_usage_count(account) <= max_usage
+            ]
+            if candidates:
+                return pick_least_inflight(candidates)
+        return pick_least_inflight(tokens)
+
     def _acquire_next_candidate_token(
             self,
             excluded_tokens: set[str] | None = None,
@@ -1126,8 +1167,7 @@ class AccountService:
                     )
                 tokens = self._list_available_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
                 if tokens:
-                    access_token = tokens[self._index % len(tokens)]
-                    self._index += 1
+                    access_token = self._pick_preferred_image_token(tokens)
                     self._image_inflight[access_token] = int(self._image_inflight.get(access_token, 0)) + 1
                     self._image_inflight_times.setdefault(access_token, []).append(time.time())
                     return access_token

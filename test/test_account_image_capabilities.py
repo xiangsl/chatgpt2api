@@ -97,6 +97,123 @@ class AccountCapabilityTests(unittest.TestCase):
             self.assertEqual(plus_token, "token-plus")
             self.assertEqual(pro_token, "token-pro")
 
+    def test_acquire_prefers_unused_then_low_usage_tiers(self) -> None:
+        original_concurrency = config.data.get("image_account_concurrency")
+        config.data["image_account_concurrency"] = 1
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                service.add_account_items(
+                    [
+                        {
+                            "access_token": "token-heavy",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 4,
+                            "fail": 2,
+                        },
+                        {
+                            "access_token": "token-mid",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 2,
+                            "fail": 2,
+                        },
+                        {
+                            "access_token": "token-low",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 1,
+                            "fail": 1,
+                        },
+                        {
+                            "access_token": "token-unused",
+                            "status": "正常",
+                            "quota": 3,
+                        },
+                    ]
+                )
+
+                first = service._acquire_next_candidate_token()
+                second = service._acquire_next_candidate_token()
+                third = service._acquire_next_candidate_token()
+                fourth = service._acquire_next_candidate_token()
+                for token in (first, second, third, fourth):
+                    service.release_image_slot(token)
+
+                self.assertEqual(first, "token-unused")
+                self.assertEqual(second, "token-low")
+                self.assertEqual(third, "token-mid")
+                self.assertEqual(fourth, "token-heavy")
+        finally:
+            if original_concurrency is None:
+                config.data.pop("image_account_concurrency", None)
+            else:
+                config.data["image_account_concurrency"] = original_concurrency
+
+    def test_acquire_spreads_across_same_tier_accounts(self) -> None:
+        original_concurrency = config.data.get("image_account_concurrency")
+        config.data["image_account_concurrency"] = 3
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                service.add_account_items(
+                    [
+                        {"access_token": "token-a", "status": "正常", "quota": 3},
+                        {"access_token": "token-b", "status": "正常", "quota": 3},
+                        {"access_token": "token-c", "status": "正常", "quota": 3},
+                    ]
+                )
+
+                picked = [
+                    service._acquire_next_candidate_token(),
+                    service._acquire_next_candidate_token(),
+                    service._acquire_next_candidate_token(),
+                ]
+                for token in picked:
+                    service.release_image_slot(token)
+
+                self.assertEqual(set(picked), {"token-a", "token-b", "token-c"})
+        finally:
+            if original_concurrency is None:
+                config.data.pop("image_account_concurrency", None)
+            else:
+                config.data["image_account_concurrency"] = original_concurrency
+
+    def test_acquire_falls_back_to_round_robin_when_all_above_tier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+            service.add_account_items(
+                [
+                    {
+                        "access_token": "token-a",
+                        "status": "正常",
+                        "quota": 3,
+                        "success": 4,
+                        "fail": 2,
+                    },
+                    {
+                        "access_token": "token-b",
+                        "status": "正常",
+                        "quota": 3,
+                        "success": 5,
+                        "fail": 1,
+                    },
+                ]
+            )
+
+            first = service._acquire_next_candidate_token()
+            second = service._acquire_next_candidate_token()
+            service.release_image_slot(first)
+            service.release_image_slot(second)
+            third = service._acquire_next_candidate_token()
+            fourth = service._acquire_next_candidate_token()
+            service.release_image_slot(third)
+            service.release_image_slot(fourth)
+
+            self.assertEqual({first, second}, {"token-a", "token-b"})
+            self.assertEqual({third, fourth}, {"token-a", "token-b"})
+
     def test_refresh_accounts_can_remove_invalid_token_without_confirmation_delay(self) -> None:
         original_value = config.data.get("auto_remove_invalid_accounts")
         config.data["auto_remove_invalid_accounts"] = True
