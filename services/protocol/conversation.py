@@ -129,9 +129,8 @@ EMPTY_UPSTREAM_CONVERSATION_500_RE = re.compile(
     re.IGNORECASE,
 )
 FORCE_IMAGE_GENERATION_INSTRUCTION = (
-    "\n\nIMPORTANT: Generate the requested image now. Do not return text, explanations, "
-    "questions, plans, or tool-call parameters. Use the image generation tool and return "
-    "only the generated image."
+    "\n\n重要：请立即生成所请求的图片。不要返回文字说明、解释、提问、方案或工具调用参数。"
+    "请使用图片生成工具，只返回生成的图片。"
 )
 
 
@@ -140,7 +139,11 @@ def is_empty_upstream_conversation_500(message: str) -> bool:
 
 
 def force_image_generation_prompt(prompt: str) -> str:
-    return f"{str(prompt or '').rstrip()}{FORCE_IMAGE_GENERATION_INSTRUCTION}"
+    text = str(prompt or "").rstrip()
+    instruction = FORCE_IMAGE_GENERATION_INSTRUCTION.strip()
+    if instruction in text:
+        return text
+    return f"{text}{FORCE_IMAGE_GENERATION_INSTRUCTION}"
 
 
 def image_stream_error_message(message: str, prompt: str = "") -> str:
@@ -266,7 +269,8 @@ def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> 
         hints.append(f"输出图片尺寸为 {size}。")
     if quality:
         hints.append(f"输出图片质量为 {quality}。")
-    return f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
+    base = f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
+    return force_image_generation_prompt(base)
 
 
 def encoding_for_model(model: str):

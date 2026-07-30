@@ -4,6 +4,7 @@ import unittest
 
 from services.protocol.conversation import (
     FORCE_IMAGE_GENERATION_INSTRUCTION,
+    build_image_prompt,
     force_image_generation_prompt,
     image_stream_error_message,
 )
@@ -19,6 +20,24 @@ class ImageErrorMessageTests(unittest.TestCase):
         self.assertEqual(
             force_image_generation_prompt(prompt),
             prompt + FORCE_IMAGE_GENERATION_INSTRUCTION,
+        )
+        self.assertEqual(
+            force_image_generation_prompt(prompt + FORCE_IMAGE_GENERATION_INSTRUCTION),
+            prompt + FORCE_IMAGE_GENERATION_INSTRUCTION,
+        )
+
+    def test_build_image_prompt_appends_force_instruction(self):
+        prompt = "甘州大集超宽横版海报"
+
+        result = build_image_prompt(prompt, "1792x1024", "high")
+
+        self.assertIn("输出图片尺寸为 1792x1024。", result)
+        self.assertIn("输出图片质量为 high。", result)
+        self.assertTrue(result.endswith(FORCE_IMAGE_GENERATION_INSTRUCTION.strip()))
+        self.assertEqual(result.count(FORCE_IMAGE_GENERATION_INSTRUCTION.strip()), 1)
+        self.assertEqual(
+            force_image_generation_prompt(result),
+            result,
         )
 
     def test_long_prompt_empty_upstream_500_suggests_shortening_prompt(self):
