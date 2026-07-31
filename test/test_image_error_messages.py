@@ -7,6 +7,7 @@ from services.protocol.conversation import (
     build_image_prompt,
     force_image_generation_prompt,
     image_stream_error_message,
+    is_skipped_mainline_error,
 )
 
 
@@ -52,6 +53,14 @@ class ImageErrorMessageTests(unittest.TestCase):
         message = image_stream_error_message("/backend-api/f/conversation failed: status=500, body=temporary failure", "a" * 20_001)
 
         self.assertEqual(message, "/backend-api/f/conversation failed: status=500, body=temporary failure")
+
+    def test_skipped_mainline_error_detection(self):
+        self.assertTrue(
+            is_skipped_mainline_error(
+                '/backend-api/f/conversation failed: status=400, body={"skipped_mainline": true}'
+            )
+        )
+        self.assertFalse(is_skipped_mainline_error("/backend-api/f/conversation failed: status=400, body=bad request"))
 
 
 if __name__ == "__main__":

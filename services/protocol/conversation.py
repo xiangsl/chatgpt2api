@@ -108,6 +108,11 @@ def is_connection_timeout_error(message: str) -> bool:
     )
 
 
+def is_skipped_mainline_error(message: str) -> bool:
+    """检测上游 skipped_mainline 拒绝，可通过换账号重试。"""
+    return "skipped_mainline" in str(message or "").lower()
+
+
 def is_image_sse_stream_error(message: str, exc: BaseException | None = None) -> bool:
     """生图 SSE 读流阶段错误（非 token 失效、非可重试的 TLS/连接超时）。"""
     if isinstance(exc, TimeoutError) and "sse read timed out" in str(exc).lower():
@@ -1287,6 +1292,8 @@ def _generate_single_image(
     MAX_POLL_TIMEOUT_RETRIES = 0
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
     MAX_CONTENT_POLICY_RETRIES = 1
+    # skipped_mainline 错误最大换号重试次数
+    MAX_SKIPPED_MAINLINE_RETRIES = 1
     # SSE 读流错误最大换号重试次数
     MAX_SSE_STREAM_RETRIES = 0
 
@@ -1295,6 +1302,7 @@ def _generate_single_image(
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
     content_policy_retry_count = 0
+    skipped_mainline_retry_count = 0
     sse_stream_retry_count = 0
     account_email = ""
     effective_request = request
@@ -1514,6 +1522,26 @@ def _generate_single_image(
                     continue
                 account_service.remove_invalid_token(token, "image_stream")
                 continue
+            # skipped_mainline：上游跳过主线，换账号重试
+            if not emitted_for_token and is_skipped_mainline_error(last_error):
+                skipped_mainline_retry_count += 1
+                if skipped_mainline_retry_count <= MAX_SKIPPED_MAINLINE_RETRIES:
+                    logger.warning({
+                        "event": "image_stream_skipped_mainline_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": skipped_mainline_retry_count,
+                        "index": index,
+                        "error": last_error[:200],
+                    })
+                    continue
+                logger.warning({
+                    "event": "image_stream_skipped_mainline_exhausted_retries",
+                    "request_token": token,
+                    "account_email": account_email,
+                    "retry_count": skipped_mainline_retry_count,
+                    "index": index,
+                })
             # TLS/SSL 连接错误：自动重试
             if not emitted_for_token and is_tls_connection_error(last_error):
                 tls_retry_count += 1
