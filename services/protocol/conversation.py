@@ -1463,6 +1463,29 @@ def _generate_single_image(
             if account_email and not getattr(exc, "account_email", ""):
                 exc.account_email = account_email
             error_text = str(exc)
+            # skipped_mainline 常以 message_as_error → ImageGenerationError 冒出，需在此重试
+            if is_skipped_mainline_error(error_text) and not emitted_for_token:
+                skipped_mainline_retry_count += 1
+                if skipped_mainline_retry_count <= MAX_SKIPPED_MAINLINE_RETRIES:
+                    logger.warning({
+                        "event": "image_stream_skipped_mainline_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": skipped_mainline_retry_count,
+                        "index": index,
+                        "conversation_id": getattr(exc, "conversation_id", ""),
+                        "error": error_text[:200],
+                    })
+                    continue
+                logger.warning({
+                    "event": "image_stream_skipped_mainline_exhausted_retries",
+                    "request_token": token,
+                    "account_email": account_email,
+                    "retry_count": skipped_mainline_retry_count,
+                    "index": index,
+                    "conversation_id": getattr(exc, "conversation_id", ""),
+                })
+                raise
             # 如果是模型返回文本而非图片，尝试换账号重试
             if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token:
                 text_reply_retry_count += 1
@@ -1522,7 +1545,7 @@ def _generate_single_image(
                     continue
                 account_service.remove_invalid_token(token, "image_stream")
                 continue
-            # skipped_mainline：上游跳过主线，换账号重试
+            # skipped_mainline：HTTP 400 直出时走此分支，重试
             if not emitted_for_token and is_skipped_mainline_error(last_error):
                 skipped_mainline_retry_count += 1
                 if skipped_mainline_retry_count <= MAX_SKIPPED_MAINLINE_RETRIES:

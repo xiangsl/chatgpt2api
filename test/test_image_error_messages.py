@@ -60,6 +60,8 @@ class ImageErrorMessageTests(unittest.TestCase):
                 '/backend-api/f/conversation failed: status=400, body={"skipped_mainline": true}'
             )
         )
+        # message_as_error 路径常见的精简 body
+        self.assertTrue(is_skipped_mainline_error('{"skipped_mainline":true}'))
         self.assertFalse(is_skipped_mainline_error("/backend-api/f/conversation failed: status=400, body=bad request"))
 
 
