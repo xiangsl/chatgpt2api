@@ -193,6 +193,15 @@ def _image_error_response(exc: Exception) -> JSONResponse:
             },
             429,
         )
+    # Pillow refuses oversized images; treat as client encoding error, not upstream 502.
+    raw = str(exc).lower()
+    if "decompression bomb" in raw or ("image size" in raw and "exceeds limit of" in raw and "pixels" in raw):
+        return openai_error_response(
+            message,
+            400,
+            error_type="invalid_request_error",
+            code="encoding_error",
+        )
     if hasattr(exc, "to_openai_error") and hasattr(exc, "status_code"):
         return JSONResponse(status_code=int(exc.status_code), content=exc.to_openai_error())
     return openai_error_response(message, 502)

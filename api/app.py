@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from threading import Event
 
+from anyio import to_thread
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -20,6 +21,7 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        to_thread.current_default_thread_limiter().total_tokens = 100
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
         full_refresh_thread = start_account_full_refresh_scheduler(stop_event)

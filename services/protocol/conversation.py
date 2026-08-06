@@ -170,30 +170,20 @@ def image_stream_error_message(message: str, prompt: str = "") -> str:
 
 
 REFERENCED_IMAGE_IDS_RE = re.compile(r'"referenced_image_ids"\s*:\s*\[([^\]]+)\]')
-# 检测模型返回的部分工具调用 JSON（如 {"size":"1920x1088","n":1}）
-# 这些 JSON 包含图片生成工具的参数，但没有实际生成图片
-TOOL_PARAMS_JSON_RE = re.compile(
-    r'\{\s*"size"\s*:\s*"\d+x\d+"\s*,\s*"n"\s*:\s*\d+\s*\}'
-)
+# 检测模型返回的图片工具参数（如 {"size":"...","n":1} 或夹带 prompt 的完整 JSON）。
+# 这些文本说明模型在描述/回传工具参数，图片可能仍在异步生成中。
+TOOL_SIZE_RE = re.compile(r'"size"\s*:\s*"\d+x\d+"')
+TOOL_N_RE = re.compile(r'"n"\s*:\s*\d+')
 
 
-def is_model_text_reply_instead_of_image(message: str) -> bool:
-    """检测模型是否返回了文本回复（包含工具调用 JSON）而非实际生成图片。
-
-    当上游 ChatGPT 未能触发图片生成工具时，会返回一段描述性文本，
-    其中可能包含 JSON 参数（如 prompt、referenced_image_ids、size/n 等）。
-    这种情况应被视为「上游未生成图片」而非「内容策略违规」。
-
-    检测两种模式：
-    1. 完整的工具调用 JSON（含 referenced_image_ids）
-    2. 部分的工具参数 JSON（如 {"size":"1920x1088","n":1}）
-    """
+def is_async_image_tool_text_reply(message: str) -> bool:
+    """检测文本是否像图片工具参数（图片可能仍在异步生成，适合延长轮询）。"""
     if not message:
         return False
     if REFERENCED_IMAGE_IDS_RE.search(message):
         return True
-    # 检测部分工具参数 JSON（模型返回了工具参数但未触发工具）
-    if TOOL_PARAMS_JSON_RE.search(message):
+    # 允许 {"size","n"} 之外还有 prompt 等字段，字段顺序不限
+    if TOOL_SIZE_RE.search(message) and TOOL_N_RE.search(message):
         return True
     return False
 
@@ -880,14 +870,20 @@ def stream_image_outputs(
         yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=error_text, conversation_id=conversation_id)
         return
     should_poll_for_image = bool(request.images) or last.get("turn_use_case") == "image gen"
-    if message and not file_ids and not sediment_ids and not should_poll_for_image:
+    # 有文本、无图片，且本轮并非明确的生图/编辑轮：直接当文本代图返回，
+    # 由 message_as_error 换号 + 强制生图指令重试，不再为工具参数 JSON 空等长轮询。
+    has_text_without_image = bool(message) and not file_ids and not sediment_ids
+    is_text_reply = bool(message and is_async_image_tool_text_reply(message))
+    if has_text_without_image and not should_poll_for_image:
+        logger.info({
+            "event": "image_text_without_image_switch_retry",
+            "conversation_id": conversation_id,
+            "async_tool_text": is_text_reply,
+            "message_preview": message[:200],
+        })
         yield ImageOutput(kind="message", model=request.model, index=index, total=total, text=message, conversation_id=conversation_id)
         return
 
-    # 检测模型是否返回了文本描述（含 referenced_image_ids）而非实际生成图片
-    # 这说明模型已发起图片生成工具调用，但 SSE 在工具完成前断开，
-    # 图片可能正在异步生成中。需要使用更积极的轮询策略来获取结果。
-    is_text_reply = bool(message and is_model_text_reply_instead_of_image(message))
     if is_text_reply:
         logger.info({
             "event": "image_detected_text_reply_with_ids",
@@ -1360,6 +1356,8 @@ def _generate_single_image(
                         policy_exc = ImageContentPolicyError(error_text)
                         setattr(policy_exc, "conversation_id", output.conversation_id)
                         raise policy_exc
+                    # 生图 API 只接受图片；上游闲聊/描述文本也按 content_policy_violation 返回，
+                    # 便于兼容 new-api/监控，同时仍走换号 + 强制生图重试。
                     raise ImageGenerationError(
                         error_text,
                         status_code=400,
@@ -1486,8 +1484,9 @@ def _generate_single_image(
                     "conversation_id": getattr(exc, "conversation_id", ""),
                 })
                 raise
-            # 如果是模型返回文本而非图片，尝试换账号重试
-            if is_model_text_reply_instead_of_image(error_text) and not emitted_for_token:
+            # message_as_error 路径对「有文本没出图」会打上 content_policy_violation；
+            # 这里换号并强制触发生图（真正的内容政策走 ImageContentPolicyError 分支）。
+            if getattr(exc, "code", None) == "content_policy_violation" and not emitted_for_token:
                 text_reply_retry_count += 1
                 if text_reply_retry_count <= MAX_TEXT_REPLY_RETRIES:
                     effective_request = replace(
@@ -1511,15 +1510,7 @@ def _generate_single_image(
                     "retry_count": text_reply_retry_count,
                     "index": index,
                 })
-                raise ImageGenerationError(
-                    "Image generation failed: the upstream model returned a text description "
-                    "instead of generating an image. Please try again later.",
-                    status_code=502,
-                    error_type="server_error",
-                    code="upstream_text_reply",
-                    account_email=account_email,
-                    conversation_id=getattr(exc, "conversation_id", ""),
-                ) from exc
+                raise
             logger.warning({
                 "event": "image_stream_generation_error",
                 "request_token": token,
