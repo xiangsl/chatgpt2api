@@ -4,7 +4,7 @@
   "full_refresh_account_interval_minute": 20,
   "if_write_image": 0,
   "image_retention_days": 0.5,
-  "image_poll_timeout_secs": 240,
+  "image_poll_timeout_secs": 100,
   "auto_remove_rate_limited_accounts": false,
   "auto_remove_invalid_accounts": true,
   "log_levels": [
