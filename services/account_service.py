@@ -1125,30 +1125,34 @@ class AccountService:
         return success + fail
 
     def _pick_preferred_image_token(self, tokens: list[str]) -> str:
-        """优先未使用 -> 使用次数<=3 -> 使用次数<=5，否则轮询。
+        """先铺开到在途为 0 的账号，再在空闲账号里按使用次数分档。
 
-        同一优先级内优先选在途数更少的账号，尽量避免多线程扎堆同一号。
+        有空闲账号时：未使用 -> 使用次数<=3 -> 使用次数<=5 -> 其余轮询。
+        没有空闲账号时：忽略使用次数，在在途最少的账号里轮询，避免把并发堆到已经更忙的号上。
         """
-        accounts = [(token, self._accounts.get(token)) for token in tokens]
 
-        def pick_least_inflight(candidates: list[str]) -> str:
-            min_inflight = min(int(self._image_inflight.get(token, 0)) for token in candidates)
-            lowest = [token for token in candidates if int(self._image_inflight.get(token, 0)) == min_inflight]
-            if len(lowest) == 1:
-                return lowest[0]
-            access_token = lowest[self._index % len(lowest)]
+        def pick_round_robin(candidates: list[str]) -> str:
+            if len(candidates) == 1:
+                return candidates[0]
+            access_token = candidates[self._index % len(candidates)]
             self._index += 1
             return access_token
 
-        for max_usage in (0, 3, 5):
-            candidates = [
-                token
-                for token, account in accounts
-                if self._image_usage_count(account) <= max_usage
-            ]
-            if candidates:
-                return pick_least_inflight(candidates)
-        return pick_least_inflight(tokens)
+        idle = [token for token in tokens if int(self._image_inflight.get(token, 0)) == 0]
+        if idle:
+            for max_usage in (0, 3, 5):
+                candidates = [
+                    token
+                    for token in idle
+                    if self._image_usage_count(self._accounts.get(token)) <= max_usage
+                ]
+                if candidates:
+                    return pick_round_robin(candidates)
+            return pick_round_robin(idle)
+
+        min_inflight = min(int(self._image_inflight.get(token, 0)) for token in tokens)
+        lowest = [token for token in tokens if int(self._image_inflight.get(token, 0)) == min_inflight]
+        return pick_round_robin(lowest)
 
     def _acquire_next_candidate_token(
             self,

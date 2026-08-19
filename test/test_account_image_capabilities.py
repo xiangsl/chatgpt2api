@@ -151,6 +151,118 @@ class AccountCapabilityTests(unittest.TestCase):
             else:
                 config.data["image_account_concurrency"] = original_concurrency
 
+    def test_acquire_prefers_idle_accounts_before_low_usage(self) -> None:
+        original_concurrency = config.data.get("image_account_concurrency")
+        config.data["image_account_concurrency"] = 3
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                service.add_account_items(
+                    [
+                        {
+                            "access_token": "token-unused",
+                            "status": "正常",
+                            "quota": 3,
+                        },
+                        {
+                            "access_token": "token-old",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 8,
+                            "fail": 2,
+                        },
+                    ]
+                )
+
+                first = service._acquire_next_candidate_token()
+                second = service._acquire_next_candidate_token()
+                for token in (first, second):
+                    service.release_image_slot(token)
+
+                self.assertEqual(first, "token-unused")
+                self.assertEqual(second, "token-old")
+        finally:
+            if original_concurrency is None:
+                config.data.pop("image_account_concurrency", None)
+            else:
+                config.data["image_account_concurrency"] = original_concurrency
+
+    def test_pick_prefers_least_inflight_when_no_idle_accounts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+            service.add_account_items(
+                [
+                    {"access_token": "token-busy", "status": "正常", "quota": 3},
+                    {
+                        "access_token": "token-old-a",
+                        "status": "正常",
+                        "quota": 3,
+                        "success": 8,
+                        "fail": 2,
+                    },
+                    {
+                        "access_token": "token-old-b",
+                        "status": "正常",
+                        "quota": 3,
+                        "success": 9,
+                        "fail": 1,
+                    },
+                ]
+            )
+            service._image_inflight["token-busy"] = 2
+            service._image_inflight["token-old-a"] = 1
+            service._image_inflight["token-old-b"] = 1
+
+            picked = [
+                service._pick_preferred_image_token(["token-busy", "token-old-a", "token-old-b"])
+                for _ in range(2)
+            ]
+
+            self.assertEqual(set(picked), {"token-old-a", "token-old-b"})
+            self.assertNotIn("token-busy", picked)
+
+    def test_acquire_stacks_on_least_inflight_when_no_idle_accounts(self) -> None:
+        original_concurrency = config.data.get("image_account_concurrency")
+        config.data["image_account_concurrency"] = 3
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                service.add_account_items(
+                    [
+                        {"access_token": "token-unused", "status": "正常", "quota": 3},
+                        {
+                            "access_token": "token-old-a",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 8,
+                            "fail": 2,
+                        },
+                        {
+                            "access_token": "token-old-b",
+                            "status": "正常",
+                            "quota": 3,
+                            "success": 9,
+                            "fail": 1,
+                        },
+                    ]
+                )
+
+                picked = [service._acquire_next_candidate_token() for _ in range(5)]
+                for token in picked:
+                    service.release_image_slot(token)
+
+                self.assertEqual(picked[0], "token-unused")
+                self.assertEqual(set(picked[:3]), {"token-unused", "token-old-a", "token-old-b"})
+                stacked = picked[3]
+                self.assertIn(stacked, {"token-unused", "token-old-a", "token-old-b"})
+                self.assertNotEqual(picked[4], stacked)
+                self.assertEqual(set(picked[:3] + [picked[4]]), {"token-unused", "token-old-a", "token-old-b"})
+        finally:
+            if original_concurrency is None:
+                config.data.pop("image_account_concurrency", None)
+            else:
+                config.data["image_account_concurrency"] = original_concurrency
+
     def test_acquire_spreads_across_same_tier_accounts(self) -> None:
         original_concurrency = config.data.get("image_account_concurrency")
         config.data["image_account_concurrency"] = 3
