@@ -7,6 +7,7 @@ from unittest import mock
 from services.config import config
 from services.openai_backend_api import OpenAIBackendAPI
 from services.protocol.conversation import ImageOutput, extract_conversation_ids
+from services.protocol.openai_v1_image_generations import limit_collected_image_data, limit_image_outputs
 from services.protocol.openai_v1_response import stream_image_response
 
 
@@ -174,6 +175,45 @@ class MultiImageResultTests(unittest.TestCase):
 
         self.assertEqual([event["output_index"] for event in done_events], [0, 1])
         self.assertEqual([item["result"] for item in completed["output"]], [first, second])
+
+    def test_limit_image_outputs_keeps_requested_count(self) -> None:
+        outputs = [
+            ImageOutput(kind="progress", model="gpt-image-2", index=1, total=1, text="working"),
+            ImageOutput(
+                kind="result",
+                model="gpt-image-2",
+                index=1,
+                total=1,
+                data=[{"b64_json": "one"}, {"b64_json": "two"}, {"b64_json": "three"}],
+            ),
+        ]
+
+        limited = list(limit_image_outputs(outputs, 1))
+
+        self.assertEqual(limited[0].kind, "progress")
+        self.assertEqual(limited[1].data, [{"b64_json": "one"}])
+
+    def test_limit_image_outputs_caps_across_multiple_results(self) -> None:
+        outputs = [
+            ImageOutput(kind="result", model="gpt-image-2", index=1, total=2, data=[{"b64_json": "a"}, {"b64_json": "b"}]),
+            ImageOutput(kind="result", model="gpt-image-2", index=2, total=2, data=[{"b64_json": "c"}, {"b64_json": "d"}]),
+        ]
+
+        limited = list(limit_image_outputs(outputs, 2))
+
+        self.assertEqual([item["b64_json"] for output in limited for item in output.data], ["a", "b"])
+
+    def test_limit_collected_image_data_keeps_usage_on_full_result(self) -> None:
+        result = {
+            "created": 1,
+            "data": [{"b64_json": "one"}, {"b64_json": "two"}],
+            "usage": {"output_tokens": 200},
+        }
+
+        limited = limit_collected_image_data(result, 1)
+
+        self.assertEqual(limited["data"], [{"b64_json": "one"}])
+        self.assertEqual(limited["usage"]["output_tokens"], 200)
 
 
 if __name__ == "__main__":

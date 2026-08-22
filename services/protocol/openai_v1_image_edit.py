@@ -14,6 +14,8 @@ from services.protocol.conversation import (
     stream_image_chunks,
 )
 from services.protocol.openai_v1_image_generations import (
+    limit_collected_image_data,
+    limit_image_outputs,
     normalize_collected_image_sizes,
     resolve_stream_image_outputs,
 )
@@ -90,7 +92,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     )
     outputs = resolve_stream_image_outputs(request)
     if body.get("stream"):
-        return stream_image_chunks(outputs)
+        return stream_image_chunks(limit_image_outputs(outputs, n))
     result = collect_image_outputs(outputs)
     result = normalize_collected_image_sizes(result, size, response_format, base_url)
     result["usage"] = image_usage(
@@ -98,4 +100,4 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         input_image_tokens=count_image_inputs_tokens(images, model),
         output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
     )
-    return result
+    return limit_collected_image_data(result, n)

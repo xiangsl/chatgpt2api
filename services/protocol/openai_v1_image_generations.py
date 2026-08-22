@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from PIL import Image
 
@@ -23,8 +24,8 @@ from utils.image_tokens import count_image_output_items_tokens, image_size_from_
 EXTREME_ASPECT_RATIO_THRESHOLD = 2
 POOL_RETRY_ATTEMPTS = 3
 CONCURRENT_POOL_WORKERS = 2
-ASPECT_RATIO_TOLERANCE = 0.01
-DIMENSION_TOLERANCE = 2
+ASPECT_RATIO_TOLERANCE = 0.015
+DIMENSION_TOLERANCE = 5
 
 
 def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
@@ -49,20 +50,53 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     )
     outputs = resolve_stream_image_outputs(request)
     if body.get("stream"):
-        return stream_image_chunks(outputs)
+        return stream_image_chunks(limit_image_outputs(outputs, n))
     result = collect_image_outputs(outputs)
     result = normalize_collected_image_sizes(result, size, response_format, base_url)
     result["usage"] = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
         output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
     )
+    return limit_collected_image_data(result, n)
+
+
+def requested_image_count(n: object) -> int:
+    try:
+        count = int(n or 1)
+    except (TypeError, ValueError):
+        return 1
+    return max(count, 1)
+
+
+def limit_image_outputs(outputs: Iterable[ImageOutput], n: object) -> Iterator[ImageOutput]:
+    remaining = requested_image_count(n)
+    for output in outputs:
+        if output.kind != "result":
+            yield output
+            continue
+        if remaining <= 0:
+            continue
+        data = list(output.data or [])
+        if len(data) <= remaining:
+            remaining -= len(data)
+            yield output
+            continue
+        yield replace(output, data=data[:remaining])
+        remaining = 0
+
+
+def limit_collected_image_data(result: dict[str, Any], n: object) -> dict[str, Any]:
+    data = result.get("data")
+    limit = requested_image_count(n)
+    if isinstance(data, list) and len(data) > limit:
+        result["data"] = data[:limit]
     return result
 
 
 def resolve_stream_image_outputs(request: ConversationRequest) -> Iterator[ImageOutput]:
     if is_extreme_aspect_ratio(request.size):
         return stream_image_outputs_with_pools(request)
-    return stream_image_outputs_with_pool(request)
+    return stream_image_outputs_with_ratio_retry(request)
 
 
 def is_extreme_aspect_ratio(size: object) -> bool:
@@ -72,10 +106,22 @@ def is_extreme_aspect_ratio(size: object) -> bool:
     return max(width / height, height / width) > EXTREME_ASPECT_RATIO_THRESHOLD
 
 
-def stream_image_outputs_with_pools(request: ConversationRequest) -> Iterator[ImageOutput]:
+def stream_image_outputs_with_ratio_retry(request: ConversationRequest) -> Iterator[ImageOutput]:
     target_size = parse_image_size(request.size)
-    best_outputs: list[ImageOutput] | None = None
-    best_score = float("inf")
+    first_outputs = list(stream_image_outputs_with_pool(request))
+    if first_outputs and outputs_have_close_aspect_ratio(first_outputs, target_size):
+        yield from first_outputs
+        return
+    yield from stream_image_outputs_with_pools(request, seed_outputs=first_outputs or None)
+
+
+def stream_image_outputs_with_pools(
+    request: ConversationRequest,
+    seed_outputs: list[ImageOutput] | None = None,
+) -> Iterator[ImageOutput]:
+    target_size = parse_image_size(request.size)
+    best_outputs = seed_outputs if seed_outputs else None
+    best_score = outputs_aspect_ratio_score(seed_outputs, target_size) if seed_outputs else float("inf")
 
     for _ in range(POOL_RETRY_ATTEMPTS):
         batch_results = _run_concurrent_image_pools(request)

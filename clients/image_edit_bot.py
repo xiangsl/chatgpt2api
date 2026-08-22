@@ -168,6 +168,35 @@ def load_input_images(edit_cfg: dict) -> list[InputImage]:
 _thread_local = threading.local()
 
 
+def _download_image_url(session: requests.Session, image_url: str) -> bytes:
+    # 预签名 URL 已自带查询签名，不能再带 Authorization，否则 S3 会 400。
+    img_resp = session.get(image_url, timeout=200)
+    try:
+        img_resp.raise_for_status()
+        return img_resp.content
+    finally:
+        img_resp.close()
+
+
+def _image_bytes_from_item(item: dict, session: requests.Session) -> tuple[bytes | None, str | None]:
+    """从 OpenAI 图像响应项中取出图片 bytes，兼容 b64_json 与 url。"""
+    if not isinstance(item, dict):
+        return None, "响应解析错误: data[0] 不是对象"
+
+    b64_json = item.get("b64_json")
+    if b64_json:
+        return base64.b64decode(b64_json), None
+
+    image_url = str(item.get("url") or "").strip()
+    if image_url.startswith("data:") and "," in image_url:
+        encoded = image_url.split(",", 1)[1]
+        return base64.b64decode(encoded), None
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        return _download_image_url(session, image_url), None
+
+    return None, "响应解析错误: 缺少 b64_json 和 url 字段"
+
+
 def _get_http_session() -> requests.Session:
     """每个工作线程复用独立 Session，避免全局连接池无限膨胀。"""
     session = getattr(_thread_local, "session", None)
@@ -197,6 +226,7 @@ def edit_image(
     mask_bytes: bytes | None = None,
     size: str | None = None,
     quality: str = "auto",
+    response_format: str = "b64_json",
 ) -> tuple[bool, float, str | None, bytes | None]:
     """
     调用 OpenAI 兼容的图像编辑接口（multipart 上传，支持多图）。
@@ -206,12 +236,15 @@ def edit_image(
     url = f"{base_url.rstrip('/')}/images/edits"
     headers = {"Authorization": f"Bearer {api_key}"}
 
+    fmt = (response_format or "b64_json").strip().lower()
+    if fmt not in ("b64_json", "url"):
+        fmt = "b64_json"
     data = {
         "model": model,
         "prompt": prompt,
         "n": "1",
         "quality": quality,
-        "response_format": "b64_json",
+        "response_format": fmt,
     }
     if size:
         data["size"] = size
@@ -235,16 +268,17 @@ def edit_image(
         resp = session.post(url, headers=headers, data=data, files=files, timeout=2000)
         resp.raise_for_status()
         payload = resp.json()
-
-        b64_json = payload["data"][0].get("b64_json")
+        item = payload["data"][0]
         del payload
 
-        if b64_json:
-            img_bytes = base64.b64decode(b64_json)
-            del b64_json
+        img_bytes, parse_error = _image_bytes_from_item(item, session)
+        if isinstance(item, dict):
+            item.clear()
+
+        if img_bytes:
             return True, time.time() - start, None, img_bytes
 
-        error_msg = "响应解析错误: 缺少 b64_json 字段"
+        error_msg = parse_error or "响应解析错误: 缺少 b64_json 和 url 字段"
         logger.error(error_msg)
         return False, time.time() - start, error_msg, None
 
@@ -370,6 +404,7 @@ def worker(
             mask_bytes=mask_bytes,
             size=api_cfg.get("image_size"),
             quality=api_cfg.get("image_quality", "auto"),
+            response_format=api_cfg.get("response_format", "b64_json"),
         )
 
         if success:

@@ -63,6 +63,30 @@ def check_image_size(b64_json: str, expected_size: str) -> tuple[bool, str | Non
     return False, f"图片尺寸不符: 期望 {expected_w}x{expected_h}, 实际 {actual_w}x{actual_h}"
 
 
+def _image_b64_from_item(item: dict) -> tuple[str | None, str | None]:
+    """从 OpenAI 图像响应项中取出 b64，兼容 b64_json 与 url。"""
+    if not isinstance(item, dict):
+        return None, "响应解析错误: data[0] 不是对象"
+
+    b64_json = item.get("b64_json")
+    if b64_json:
+        return b64_json, None
+
+    image_url = str(item.get("url") or "").strip()
+    if image_url.startswith("data:") and "," in image_url:
+        return image_url.split(",", 1)[1], None
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        # 预签名 URL 已自带查询签名，不能再带 Authorization，否则 S3 会 400。
+        img_resp = requests.get(image_url, timeout=200)
+        try:
+            img_resp.raise_for_status()
+            return base64.b64encode(img_resp.content).decode("ascii"), None
+        finally:
+            img_resp.close()
+
+    return None, "响应解析错误: 缺少 b64_json 和 url 字段"
+
+
 def generate_image(
     base_url: str,
     api_key: str,
@@ -70,6 +94,7 @@ def generate_image(
     prompt: str,
     size: str,
     quality: str,
+    response_format: str = "b64_json",
 ) -> tuple[bool, float, str | None, str | None]:
     """
     调用 OpenAI 兼容的图像生成接口。
@@ -81,20 +106,23 @@ def generate_image(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    fmt = (response_format or "b64_json").strip().lower()
+    if fmt not in ("b64_json", "url"):
+        fmt = "b64_json"
     payload = {
         "model": model,
         "prompt": prompt,
         "n": 1,
         "size": size,
         "quality": quality,
-        "response_format": "b64_json",
+        "response_format": fmt,
     }
 
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=900)
         resp.raise_for_status()
         data = resp.json()
-        b64_json = data["data"][0].get("b64_json")
+        b64_json, parse_error = _image_b64_from_item(data["data"][0])
         if b64_json:
             size_ok, size_error = check_image_size(b64_json, size)
             if not size_ok:
@@ -102,7 +130,7 @@ def generate_image(
                 return False, time.time() - start, size_error, None
             return True, time.time() - start, None, b64_json
 
-        error_msg = "响应解析错误: 缺少 b64_json 字段"
+        error_msg = parse_error or "响应解析错误: 缺少 b64_json 和 url 字段"
         logger.error(error_msg)
         return False, time.time() - start, error_msg, None
 
@@ -179,6 +207,7 @@ def main():
         prompt=prompt,
         size=api_cfg["image_size"],
         quality=api_cfg["image_quality"],
+        response_format=api_cfg.get("response_format", "b64_json"),
     )
 
     if not success:
