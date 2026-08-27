@@ -81,6 +81,16 @@ class ImageStorageServiceTests(unittest.TestCase):
         self.assertFalse(list(self.images_dir.rglob("*")))
         self.mock_config.cleanup_old_images.assert_not_called()
 
+    def test_save_force_writes_when_if_write_image_disabled(self):
+        self.mock_config.if_write_image = False
+        stored = self.service().save(png_bytes(), "http://app.test", force=True)
+
+        self.assertEqual(stored.storage, "local")
+        self.assertTrue((self.images_dir / stored.rel).is_file())
+        self.assertEqual(stored.url, f"http://app.test/images/{stored.rel}")
+        self.assertFalse(self.service().index_file.exists())
+        self.mock_config.cleanup_old_images.assert_called_once()
+
     def test_local_mode_saves_to_local_directory(self):
         stored = self.service().save(png_bytes(), "http://app.test")
 

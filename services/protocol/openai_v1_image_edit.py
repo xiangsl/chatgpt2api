@@ -14,9 +14,9 @@ from services.protocol.conversation import (
     stream_image_chunks,
 )
 from services.protocol.openai_v1_image_generations import (
+    finalize_image_outputs,
     limit_collected_image_data,
     limit_image_outputs,
-    normalize_collected_image_sizes,
     resolve_stream_image_outputs,
 )
 from utils.image_tokens import count_image_inputs_tokens, count_image_output_items_tokens, image_size_from_bytes, image_usage
@@ -78,23 +78,28 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     encoded_images = encode_images(images)
     if not encoded_images:
         raise ImageGenerationError("image is required")
+    stream = bool(body.get("stream"))
     request = ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
         size=size,
         quality=quality,
-        response_format=response_format,
+        response_format="b64_json" if response_format == "url" else response_format,
         base_url=base_url,
         images=encoded_images,
         message_as_error=True,
         progress_callback=progress_callback,
     )
-    outputs = resolve_stream_image_outputs(request)
-    if body.get("stream"):
-        return stream_image_chunks(limit_image_outputs(outputs, n))
+    outputs = finalize_image_outputs(
+        limit_image_outputs(resolve_stream_image_outputs(request), n),
+        size,
+        response_format,
+        base_url,
+    )
+    if stream:
+        return stream_image_chunks(outputs)
     result = collect_image_outputs(outputs)
-    result = normalize_collected_image_sizes(result, size, response_format, base_url)
     result["usage"] = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
         input_image_tokens=count_image_inputs_tokens(images, model),

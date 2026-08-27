@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import base64
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from PIL import Image
@@ -37,22 +35,27 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     response_format = str(body.get("response_format") or "b64_json")
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
+    stream = bool(body.get("stream"))
     request = ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
         size=size,
         quality=quality,
-        response_format=response_format,
+        response_format="b64_json" if response_format == "url" else response_format,
         base_url=base_url,
         message_as_error=True,
         progress_callback=progress_callback,
     )
-    outputs = resolve_stream_image_outputs(request)
-    if body.get("stream"):
-        return stream_image_chunks(limit_image_outputs(outputs, n))
+    outputs = finalize_image_outputs(
+        limit_image_outputs(resolve_stream_image_outputs(request), n),
+        size,
+        response_format,
+        base_url,
+    )
+    if stream:
+        return stream_image_chunks(outputs)
     result = collect_image_outputs(outputs)
-    result = normalize_collected_image_sizes(result, size, response_format, base_url)
     result["usage"] = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
         output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
@@ -141,6 +144,22 @@ def stream_image_outputs_with_pools(
     yield from stream_image_outputs_with_pool(request)
 
 
+def finalize_image_outputs(
+    outputs: Iterable[ImageOutput],
+    size: object,
+    response_format: str,
+    base_url: str | None = None,
+) -> Iterator[ImageOutput]:
+    for output in outputs:
+        if output.kind != "result":
+            yield output
+            continue
+        result = normalize_collected_image_sizes({"data": list(output.data or [])}, size, "b64_json", base_url)
+        if response_format == "url":
+            apply_url_response_format(result.get("data"), base_url)
+        yield replace(output, data=result.get("data") or [])
+
+
 def normalize_collected_image_sizes(
     result: dict[str, Any],
     size: object,
@@ -163,14 +182,21 @@ def normalize_collected_image_sizes(
             continue
         resized_bytes = resize_image_bytes(image_bytes, target_size[0], target_size[1])
         apply_resized_image_to_result_item(item, resized_bytes, response_format, base_url)
-        # 简单测试：记录 resize 前后图片
-        #ts = int(time.time() * 1000)
-        #tmp_dir = Path("clients/tmp")
-        #tmp_dir.mkdir(parents=True, exist_ok=True)
-        #(tmp_dir / f"{ts}_orig.png").write_bytes(image_bytes)
-        #(tmp_dir / f"{ts}_new.png").write_bytes(resized_bytes)
 
     return result
+
+
+def apply_url_response_format(data: object, base_url: str | None = None) -> None:
+    if not isinstance(data, list):
+        return
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        image_bytes = image_bytes_from_result_item(item)
+        if image_bytes is None:
+            continue
+        item.pop("b64_json", None)
+        item["url"] = save_image_bytes(image_bytes, base_url, force=True)
 
 
 def _run_concurrent_image_pools(request: ConversationRequest) -> list[list[ImageOutput]]:

@@ -213,8 +213,8 @@ class ImageStorageService:
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
-    def save(self, image_data: bytes, base_url: str | None = None) -> StoredImage:
-        if not config.if_write_image:
+    def save(self, image_data: bytes, base_url: str | None = None, *, force: bool = False) -> StoredImage:
+        if not force and not config.if_write_image:
             return StoredImage(rel="", url="", storage="none", size=len(image_data))
         config.cleanup_old_images()
         rel = self.make_relative_path(image_data)
@@ -235,6 +235,10 @@ class ImageStorageService:
             remote_url = WebDAVClient(self.settings()).put(rel, image_data)
             stored_webdav = True
 
+        storage = "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local")
+        if force:
+            return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=storage, size=len(image_data))
+
         dimensions = _image_dimensions(image_data)
         item = {
             "rel": rel,
@@ -243,7 +247,7 @@ class ImageStorageService:
             "date": "-".join(rel.split("/")[:3]),
             "size": len(image_data),
             "created_at": _now_iso(),
-            "storage": "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local"),
+            "storage": storage,
             "local": stored_local,
             "webdav": stored_webdav,
             "remote_url": remote_url,
@@ -254,7 +258,7 @@ class ImageStorageService:
             items = self._load_clean_index()
             items[rel] = item
             self._save_index(items)
-        return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=str(item["storage"]), size=len(image_data))
+        return StoredImage(rel=rel, url=self._public_url(rel, base_url), storage=storage, size=len(image_data))
 
     def get_bytes(self, rel: str) -> bytes:
         safe_rel = _safe_relative_path(rel)
