@@ -3,13 +3,11 @@ from __future__ import annotations
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
-from io import BytesIO
 from typing import Any, Iterable, Iterator
-
-from PIL import Image
 
 from services.protocol.conversation import (
     ConversationRequest,
+    ImageGenerationError,
     ImageOutput,
     collect_image_outputs,
     count_text_tokens,
@@ -17,6 +15,7 @@ from services.protocol.conversation import (
     stream_image_chunks,
     stream_image_outputs_with_pool,
 )
+from utils.image_format import encode_image_bytes, normalize_output_format, output_format_from_bytes, parse_output_compression
 from utils.image_tokens import count_image_output_items_tokens, image_size_from_bytes, image_usage, parse_image_size
 
 EXTREME_ASPECT_RATIO_THRESHOLD = 2
@@ -33,6 +32,8 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     size = body.get("size")
     quality = str(body.get("quality") or "auto")
     response_format = str(body.get("response_format") or "b64_json")
+    output_format = _request_output_format(body)
+    output_compression = _request_output_compression(body)
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
     stream = bool(body.get("stream"))
@@ -43,6 +44,8 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         size=size,
         quality=quality,
         response_format="b64_json" if response_format == "url" else response_format,
+        output_format=output_format,
+        output_compression=output_compression,
         base_url=base_url,
         message_as_error=True,
         progress_callback=progress_callback,
@@ -52,6 +55,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         size,
         response_format,
         base_url,
+        output_format=output_format,
     )
     if stream:
         return stream_image_chunks(outputs)
@@ -61,6 +65,20 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         output_tokens=count_image_output_items_tokens(result.get("data"), size, quality),
     )
     return limit_collected_image_data(result, n)
+
+
+def _request_output_format(body: dict[str, Any]) -> str:
+    try:
+        return normalize_output_format(body.get("output_format"))
+    except ValueError as exc:
+        raise ImageGenerationError(str(exc), status_code=400, error_type="invalid_request_error", code="invalid_value", param="output_format") from exc
+
+
+def _request_output_compression(body: dict[str, Any]) -> int | None:
+    try:
+        return parse_output_compression(body.get("output_compression"))
+    except ValueError as exc:
+        raise ImageGenerationError(str(exc), status_code=400, error_type="invalid_request_error", code="invalid_value", param="output_compression") from exc
 
 
 def requested_image_count(n: object) -> int:
@@ -149,12 +167,19 @@ def finalize_image_outputs(
     size: object,
     response_format: str,
     base_url: str | None = None,
+    output_format: str = "png",
 ) -> Iterator[ImageOutput]:
     for output in outputs:
         if output.kind != "result":
             yield output
             continue
-        result = normalize_collected_image_sizes({"data": list(output.data or [])}, size, "b64_json", base_url)
+        result = normalize_collected_image_sizes(
+            {"data": list(output.data or [])},
+            size,
+            "b64_json",
+            base_url,
+            output_format=output_format,
+        )
         if response_format == "url":
             apply_url_response_format(result.get("data"), base_url)
         yield replace(output, data=result.get("data") or [])
@@ -165,11 +190,13 @@ def normalize_collected_image_sizes(
     size: object,
     response_format: str,
     base_url: str | None = None,
+    output_format: str = "png",
 ) -> dict[str, Any]:
     target_size = parse_image_size(size)
     data = result.get("data")
     if not isinstance(data, list):
         return result
+    target_format = normalize_output_format(output_format)
 
     for item in data:
         if not isinstance(item, dict):
@@ -178,10 +205,18 @@ def normalize_collected_image_sizes(
         if image_bytes is None:
             continue
         actual_size = image_size_from_bytes(image_bytes)
-        if actual_size == target_size:
+        same_format = output_format_from_bytes(image_bytes) == target_format
+        if actual_size == target_size and same_format:
             continue
-        resized_bytes = resize_image_bytes(image_bytes, target_size[0], target_size[1])
-        apply_resized_image_to_result_item(item, resized_bytes, response_format, base_url)
+        encoded_bytes = encode_image_bytes(
+            image_bytes,
+            output_format=target_format,
+            width=target_size[0],
+            height=target_size[1],
+        )
+        if encoded_bytes == image_bytes:
+            continue
+        apply_resized_image_to_result_item(item, encoded_bytes, response_format, base_url)
 
     return result
 
@@ -286,19 +321,10 @@ def apply_resized_image_to_result_item(
     item["url"] = image_url
 
 
-def resize_image_bytes(image_bytes: bytes, width: int, height: int) -> bytes:
-    with Image.open(BytesIO(image_bytes)) as image:
-        if image.size == (width, height):
-            return image_bytes
-        resized = image.resize((width, height), Image.Resampling.LANCZOS)
-        buffer = BytesIO()
-        fmt = (image.format or "PNG").upper()
-        save_kwargs: dict[str, Any] = {}
-        if fmt == "JPEG":
-            save_kwargs = {"quality": 95, "subsampling": 0, "optimize": True}
-        elif fmt == "WEBP":
-            save_kwargs = {"quality": 95, "method": 6}
-        elif fmt == "PNG":
-            save_kwargs = {"compress_level": 1}
-        resized.save(buffer, format=fmt, **save_kwargs)
-        return buffer.getvalue()
+def resize_image_bytes(image_bytes: bytes, width: int, height: int, output_format: str | None = None) -> bytes:
+    return encode_image_bytes(
+        image_bytes,
+        output_format=output_format or output_format_from_bytes(image_bytes),
+        width=width,
+        height=height,
+    )

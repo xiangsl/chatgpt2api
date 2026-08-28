@@ -14,6 +14,8 @@ from services.protocol.conversation import (
     stream_image_chunks,
 )
 from services.protocol.openai_v1_image_generations import (
+    _request_output_compression,
+    _request_output_format,
     finalize_image_outputs,
     limit_collected_image_data,
     limit_image_outputs,
@@ -73,6 +75,8 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
     size = _resolve_edit_size(body.get("size"), images)
     quality = str(body.get("quality") or "auto")
     response_format = str(body.get("response_format") or "b64_json")
+    output_format = _request_output_format(body)
+    output_compression = _request_output_compression(body)
     base_url = str(body.get("base_url") or "") or None
     progress_callback = body.get("progress_callback")
     encoded_images = encode_images(images)
@@ -86,6 +90,8 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         size=size,
         quality=quality,
         response_format="b64_json" if response_format == "url" else response_format,
+        output_format=output_format,
+        output_compression=output_compression,
         base_url=base_url,
         images=encoded_images,
         message_as_error=True,
@@ -96,6 +102,7 @@ def handle(body: dict[str, Any]) -> dict[str, Any] | Iterator[dict[str, Any]]:
         size,
         response_format,
         base_url,
+        output_format=output_format,
     )
     if stream:
         return stream_image_chunks(outputs)

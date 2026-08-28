@@ -106,6 +106,8 @@ const docs: ApiDoc[] = [
       ["size", "string", "可选，图片尺寸。"],
       ["quality", "string", "可选，默认 auto。"],
       ["response_format", "string", "可选，默认 b64_json。"],
+      ["output_format", "string", "可选，图片格式：png / jpeg / webp，默认 png。"],
+      ["output_compression", "number", "可选，jpeg/webp 压缩质量 0-100。"],
     ],
     output: [
       ["data", "array", "图片结果列表。"],
@@ -129,6 +131,8 @@ const docs: ApiDoc[] = [
       ["n", "number", "可选，生成数量，当前限制 1-4。"],
       ["size", "string", "可选，图片尺寸。"],
       ["quality", "string", "可选，默认 auto。"],
+      ["output_format", "string", "可选，图片格式：png / jpeg / webp，默认 png。"],
+      ["output_compression", "number", "可选，jpeg/webp 压缩质量 0-100。"],
     ],
     output: [
       ["data", "array", "编辑后的图片结果列表。"],

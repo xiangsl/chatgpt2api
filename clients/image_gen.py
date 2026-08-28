@@ -63,6 +63,25 @@ def check_image_size(b64_json: str, expected_size: str) -> tuple[bool, str | Non
     return False, f"图片尺寸不符: 期望 {expected_w}x{expected_h}, 实际 {actual_w}x{actual_h}"
 
 
+def _normalize_output_format(value: object, default: str = "png") -> str:
+    text = str(value or default).strip().lower()
+    if text in {"jpg", "jpeg"}:
+        return "jpeg"
+    if text in {"png", "webp"}:
+        return text
+    return default
+
+
+def _image_extension(img_bytes: bytes) -> str:
+    if img_bytes.startswith(b"\xff\xd8"):
+        return "jpg"
+    if img_bytes.startswith(b"\x89PNG"):
+        return "png"
+    if len(img_bytes) >= 12 and img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
+        return "webp"
+    return "png"
+
+
 def _image_b64_from_item(item: dict) -> tuple[str | None, str | None]:
     """从 OpenAI 图像响应项中取出 b64，兼容 b64_json 与 url。"""
     if not isinstance(item, dict):
@@ -95,6 +114,7 @@ def generate_image(
     size: str,
     quality: str,
     response_format: str = "b64_json",
+    output_format: str = "png",
 ) -> tuple[bool, float, str | None, str | None]:
     """
     调用 OpenAI 兼容的图像生成接口。
@@ -116,6 +136,7 @@ def generate_image(
         "size": size,
         "quality": quality,
         "response_format": fmt,
+        "output_format": _normalize_output_format(output_format),
     }
 
     try:
@@ -167,10 +188,11 @@ def save_generated_image(b64_json: str, output_dir: Path) -> Path | None:
     try:
         img_bytes = base64.b64decode(b64_json)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = output_dir / f"{ts}.png"
+        ext = _image_extension(img_bytes)
+        path = output_dir / f"{ts}.{ext}"
         while path.exists():
             ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            path = output_dir / f"{ts}.png"
+            path = output_dir / f"{ts}.{ext}"
         with open(path, "wb") as f:
             f.write(img_bytes)
         return path
@@ -198,6 +220,7 @@ def main():
     logger.info("开始生成图像")
     logger.info("  模型   : %s", api_cfg["model"])
     logger.info("  尺寸   : %s", api_cfg["image_size"])
+    logger.info("  输出格式 : %s", api_cfg.get("output_format", "png"))
     logger.info("  提示词 : %s", prompt[:80] + ("..." if len(prompt) > 80 else ""))
 
     success, response_time, error_msg, b64_json = generate_image(
@@ -208,6 +231,7 @@ def main():
         size=api_cfg["image_size"],
         quality=api_cfg["image_quality"],
         response_format=api_cfg.get("response_format", "b64_json"),
+        output_format=api_cfg.get("output_format", "png"),
     )
 
     if not success:

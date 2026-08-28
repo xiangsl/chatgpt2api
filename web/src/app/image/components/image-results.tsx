@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { bytesFromBase64, extensionForImageMime, sniffImageMime } from "@/lib/image-mime";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 
@@ -35,10 +36,8 @@ function getStoredImageSrc(image: StoredImage) {
   if (image.b64_json) {
     let url = b64BlobUrlCache.get(image.b64_json);
     if (!url) {
-      const binary = atob(image.b64_json);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "image/png" });
+      const bytes = bytesFromBase64(image.b64_json);
+      const blob = new Blob([bytes], { type: sniffImageMime(bytes) });
       url = URL.createObjectURL(blob);
       b64BlobUrlCache.set(image.b64_json, url);
     }
@@ -51,10 +50,8 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   let blob: Blob | null = null;
   try {
     if (image.b64_json) {
-      const binary = atob(image.b64_json);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      blob = new Blob([bytes], { type: "image/png" });
+      const bytes = bytesFromBase64(image.b64_json);
+      blob = new Blob([bytes], { type: sniffImageMime(bytes) });
     } else if (image.url) {
       // 确保 URL 是绝对路径
       const url = image.url.startsWith("http") ? image.url : `${window.location.origin}${image.url}`;
@@ -77,7 +74,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `image-${index + 1}.png`;
+  a.download = `image-${index + 1}.${extensionForImageMime(blob.type)}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

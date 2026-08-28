@@ -21,6 +21,7 @@ from services.protocol.conversation import (
     stream_text_deltas,
     text_backend,
 )
+from services.protocol.openai_v1_image_generations import finalize_image_outputs
 from services.protocol.web_search_tool import (
     WEB_SEARCH_TOOL_TYPES,
     has_unsupported_tools,
@@ -30,6 +31,7 @@ from services.protocol.web_search_tool import (
     text_with_url_citations,
 )
 from utils.helper import build_chat_image_markdown_content, extract_chat_image, extract_chat_prompt, is_image_chat_request, parse_image_count
+from utils.image_format import normalize_output_format, parse_output_compression
 from utils.image_tokens import (
     chat_usage_from_image_usage,
     count_image_inputs_tokens,
@@ -200,6 +202,20 @@ def stream_web_search_chat_completion(messages: list[dict[str, Any]], model: str
     yield completion_chunk(model, {}, "stop", completion_id, created)
 
 
+def _chat_output_format(body: dict[str, Any]) -> str:
+    try:
+        return normalize_output_format(body.get("output_format"))
+    except ValueError:
+        return "png"
+
+
+def _chat_output_compression(body: dict[str, Any]) -> int | None:
+    try:
+        return parse_output_compression(body.get("output_compression"))
+    except ValueError:
+        return None
+
+
 def image_result_content(result: dict[str, Any]) -> str:
     data = result.get("data")
     if isinstance(data, list) and data:
@@ -209,13 +225,24 @@ def image_result_content(result: dict[str, Any]) -> str:
 
 def image_chat_response(body: dict[str, Any]) -> dict[str, Any]:
     model, prompt, n, images = chat_image_args(body)
-    result = collect_image_outputs(stream_image_outputs_with_pool(ConversationRequest(
+    output_format = _chat_output_format(body)
+    image_outputs = stream_image_outputs_with_pool(ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
+        size=body.get("size"),
+        quality=str(body.get("quality") or "auto"),
         response_format="b64_json",
+        output_format=output_format,
+        output_compression=_chat_output_compression(body),
         images=encode_images(images) or None,
-    )))
+    ))
+    result = collect_image_outputs(finalize_image_outputs(
+        image_outputs,
+        body.get("size"),
+        "b64_json",
+        output_format=output_format,
+    ))
     response = completion_response(model, image_result_content(result), int(result.get("created") or 0) or None)
     usage = image_usage(
         input_text_tokens=count_text_tokens(prompt, model),
@@ -228,13 +255,24 @@ def image_chat_response(body: dict[str, Any]) -> dict[str, Any]:
 
 def image_chat_events(body: dict[str, Any]) -> Iterator[dict[str, Any]]:
     model, prompt, n, images = chat_image_args(body)
-    image_outputs = stream_image_outputs_with_pool(ConversationRequest(
+    output_format = _chat_output_format(body)
+    raw_outputs = stream_image_outputs_with_pool(ConversationRequest(
         prompt=prompt,
         model=model,
         n=n,
+        size=body.get("size"),
+        quality=str(body.get("quality") or "auto"),
         response_format="b64_json",
+        output_format=output_format,
+        output_compression=_chat_output_compression(body),
         images=encode_images(images) or None,
     ))
+    image_outputs = finalize_image_outputs(
+        raw_outputs,
+        body.get("size"),
+        "b64_json",
+        output_format=output_format,
+    )
     yield from stream_image_chat_completion(image_outputs, model)
 
 

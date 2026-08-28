@@ -197,6 +197,25 @@ def _image_bytes_from_item(item: dict, session: requests.Session) -> tuple[bytes
     return None, "响应解析错误: 缺少 b64_json 和 url 字段"
 
 
+def _normalize_output_format(value: object, default: str = "png") -> str:
+    text = str(value or default).strip().lower()
+    if text in {"jpg", "jpeg"}:
+        return "jpeg"
+    if text in {"png", "webp"}:
+        return text
+    return default
+
+
+def _image_extension(img_bytes: bytes) -> str:
+    if img_bytes.startswith(b"\xff\xd8"):
+        return "jpg"
+    if img_bytes.startswith(b"\x89PNG"):
+        return "png"
+    if len(img_bytes) >= 12 and img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
+        return "webp"
+    return "png"
+
+
 def _get_http_session() -> requests.Session:
     """每个工作线程复用独立 Session，避免全局连接池无限膨胀。"""
     session = getattr(_thread_local, "session", None)
@@ -227,6 +246,7 @@ def edit_image(
     size: str | None = None,
     quality: str = "auto",
     response_format: str = "b64_json",
+    output_format: str = "png",
 ) -> tuple[bool, float, str | None, bytes | None]:
     """
     调用 OpenAI 兼容的图像编辑接口（multipart 上传，支持多图）。
@@ -245,6 +265,7 @@ def edit_image(
         "n": "1",
         "quality": quality,
         "response_format": fmt,
+        "output_format": _normalize_output_format(output_format),
     }
     if size:
         data["size"] = size
@@ -348,10 +369,11 @@ def save_edited_image(img_bytes: bytes, output_dir: Path) -> Path | None:
     try:
         with _image_save_lock:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            path = output_dir / f"edit_{ts}.png"
+            ext = _image_extension(img_bytes)
+            path = output_dir / f"edit_{ts}.{ext}"
             while path.exists():
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                path = output_dir / f"edit_{ts}.png"
+                path = output_dir / f"edit_{ts}.{ext}"
             with open(path, "wb") as f:
                 f.write(img_bytes)
         return path
@@ -405,6 +427,7 @@ def worker(
             size=api_cfg.get("image_size"),
             quality=api_cfg.get("image_quality", "auto"),
             response_format=api_cfg.get("response_format", "b64_json"),
+            output_format=api_cfg.get("output_format", "png"),
         )
 
         if success:
@@ -564,6 +587,7 @@ def main():
     logger.info("  总运行时间    : %d 秒", total_runtime)
     logger.info("  调用间隔      : %s 秒", rt_cfg["call_interval_seconds"])
     logger.info("  模型          : %s", config["api"]["model"])
+    logger.info("  输出格式      : %s", config["api"].get("output_format", "png"))
     logger.info("  输入图片张数  : %d", len(input_images))
     logger.info("  输入图片      : %s", ", ".join(name for name, _ in input_images))
     logger.info("  蒙版          : %s", mask_path or "无")

@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from PIL import Image
 
 from services.config import DATA_DIR, config
+from utils.image_format import extension_for_bytes, mime_type_from_bytes
 
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
@@ -209,7 +210,7 @@ class ImageStorageService:
 
     def make_relative_path(self, image_data: bytes) -> str:
         file_hash = hashlib.md5(image_data).hexdigest()
-        filename = f"{int(time.time())}_{file_hash}.png"
+        filename = f"{int(time.time())}_{file_hash}{extension_for_bytes(image_data)}"
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
@@ -232,7 +233,7 @@ class ImageStorageService:
             stored_local = True
 
         if mode in {"webdav", "both"}:
-            remote_url = WebDAVClient(self.settings()).put(rel, image_data)
+            remote_url = WebDAVClient(self.settings()).put(rel, image_data, content_type=mime_type_from_bytes(image_data))
             stored_webdav = True
 
         storage = "both" if stored_local and stored_webdav else ("webdav" if stored_webdav else "local")
@@ -399,7 +400,7 @@ class ImageStorageService:
                     continue
                 try:
                     payload = path.read_bytes()
-                    remote_url = client.put(rel, payload)
+                    remote_url = client.put(rel, payload, content_type=mime_type_from_bytes(payload))
                     dimensions = _image_dimensions(payload)
                     items[rel] = {
                         **item,

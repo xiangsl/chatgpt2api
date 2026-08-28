@@ -17,15 +17,23 @@ def png_bytes() -> bytes:
     return path.read_bytes()
 
 
+def jpeg_bytes() -> bytes:
+    path = Path(tempfile.gettempdir()) / "chatgpt2api-test-image.jpg"
+    Image.new("RGB", (2, 2), color=(255, 0, 0)).save(path, format="JPEG")
+    return path.read_bytes()
+
+
 class FakeWebDAVClient:
     uploaded: dict[str, bytes] = {}
+    content_types: dict[str, str] = {}
     deleted: list[str] = []
 
     def __init__(self, _settings):
         pass
 
-    def put(self, rel: str, payload: bytes) -> str:
+    def put(self, rel: str, payload: bytes, content_type: str = "image/png") -> str:
         self.uploaded[rel] = payload
+        self.content_types[rel] = content_type
         return f"https://dav.example.test/{rel}"
 
     def get(self, rel: str) -> bytes:
@@ -66,6 +74,7 @@ class ImageStorageServiceTests(unittest.TestCase):
         self.mock_config.cleanup_old_images.return_value = 0
         self.mock_config.get_image_storage_settings.side_effect = lambda: dict(self.settings)
         FakeWebDAVClient.uploaded = {}
+        FakeWebDAVClient.content_types = {}
         FakeWebDAVClient.deleted = []
 
     def service(self) -> ImageStorageService:
@@ -97,6 +106,13 @@ class ImageStorageServiceTests(unittest.TestCase):
         self.assertEqual(stored.storage, "local")
         self.assertTrue((self.images_dir / stored.rel).is_file())
         self.assertEqual(stored.url, f"http://app.test/images/{stored.rel}")
+        self.assertTrue(stored.rel.endswith(".png"))
+
+    def test_save_jpeg_uses_jpg_extension(self):
+        stored = self.service().save(jpeg_bytes(), "http://app.test")
+
+        self.assertTrue(stored.rel.endswith(".jpg"))
+        self.assertTrue((self.images_dir / stored.rel).is_file())
 
     def test_webdav_mode_uploads_without_local_file(self):
         self.settings.update({

@@ -128,6 +128,8 @@ class ImageTaskService:
         model: str,
         size: str | None,
         quality: str = "auto",
+        output_format: str = "png",
+        output_compression: int | None = None,
         base_url: str = "",
     ) -> dict[str, Any]:
         payload = {
@@ -136,6 +138,8 @@ class ImageTaskService:
             "n": 1,
             "size": size,
             "quality": quality,
+            "output_format": output_format,
+            "output_compression": output_compression,
             "response_format": "url",
             "base_url": base_url,
         }
@@ -150,6 +154,8 @@ class ImageTaskService:
         model: str,
         size: str | None,
         quality: str = "auto",
+        output_format: str = "png",
+        output_compression: int | None = None,
         base_url: str = "",
         images: list[tuple[bytes, str, str]] | None = None,
         masks: list[tuple[bytes, str, str]] | None = None,
@@ -162,6 +168,8 @@ class ImageTaskService:
             "n": 1,
             "size": size,
             "quality": quality,
+            "output_format": output_format,
+            "output_compression": output_compression,
             "response_format": "url",
             "base_url": base_url,
         }
@@ -221,6 +229,7 @@ class ImageTaskService:
                 "model": _clean(payload.get("model"), "gpt-image-2"),
                 "size": _clean(payload.get("size")),
                 "quality": _clean(payload.get("quality"), "auto"),
+                "output_format": _clean(payload.get("output_format"), "png"),
                 "created_at": now,
                 "updated_at": now,
                 "created_ts": time.time(),
@@ -485,7 +494,7 @@ class ImageTaskService:
         backend = None
         try:
             from services.openai_backend_api import OpenAIBackendAPI
-            from services.protocol.conversation import format_image_result
+            from services.protocol.conversation import ImageOutput
 
             backend = OpenAIBackendAPI(proxy_url=config.proxy_url or None)
             file_ids, sediment_ids = backend._poll_image_results(
@@ -510,15 +519,21 @@ class ImageTaskService:
             # 获取 task 的原始 prompt（从 _public_task 的 mode 判断）
             with self._lock:
                 task = self._tasks.get(key)
-                quality = _clean(task.get("quality"), "auto") if task else "auto"
                 size = _clean(task.get("size")) if task else None
-            data = format_image_result(
-                image_items,
-                "",  # prompt 已不重要，结果已经拿到了
+                output_format = _clean(task.get("output_format"), "png") if task else "png"
+            finalized = list(openai_v1_image_generations.finalize_image_outputs(
+                [ImageOutput(
+                    kind="result",
+                    model=str(model),
+                    index=1,
+                    total=1,
+                    data=image_items,
+                )],
+                size,
                 "b64_json",
-                "",
-                int(time.time()),
-            )["data"]
+                output_format=output_format,
+            ))
+            data = finalized[0].data if finalized else []
             self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, error="", duration_ms=int((time.time() - started) * 1000))
             self._log_call(
                 identity,

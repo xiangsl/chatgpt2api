@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from curl_cffi import requests
 from fastapi import HTTPException
+from utils.image_format import mime_type_from_base64
 from utils.log import logger
 
 BASE_IMAGE_MODELS = {"gpt-image-2", "codex-gpt-image-2"}
@@ -507,5 +508,6 @@ def build_chat_image_markdown_content(image_result: dict[str, object]) -> str:
             continue
         b64_json = str(item.get("b64_json") or "").strip()
         if b64_json:
-            markdown_images.append(f"![image_{index}](data:image/png;base64,{b64_json})")
+            mime = mime_type_from_base64(b64_json)
+            markdown_images.append(f"![image_{index}](data:{mime};base64,{b64_json})")
     return "\n\n".join(markdown_images) if markdown_images else "Image generation completed."

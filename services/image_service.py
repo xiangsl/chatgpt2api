@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
 from services.config import config
-from services.image_storage_service import image_storage_service
+from services.image_storage_service import IMAGE_EXTENSIONS, image_storage_service
+from utils.image_format import mime_type_from_bytes
 from services.image_tags_service import load_tags, remove_tags
 from utils.log import logger
 
@@ -50,6 +51,10 @@ def _safe_image_path(relative_path: str) -> Path:
     return path
 
 
+def _image_media_type(payload: bytes) -> str:
+    return mime_type_from_bytes(payload)
+
+
 def get_image_response(relative_path: str) -> FileResponse | Response:
     headers = {
         "Access-Control-Allow-Origin": "*",
@@ -57,8 +62,12 @@ def get_image_response(relative_path: str) -> FileResponse | Response:
         "Access-Control-Allow-Headers": "*",
     }
     if image_storage_service.has_local(relative_path):
-        return FileResponse(_safe_image_path(relative_path), headers=headers)
-    return Response(content=image_storage_service.get_bytes(relative_path), media_type="image/png", headers=headers)
+        path = _safe_image_path(relative_path)
+        with path.open("rb") as file:
+            media_type = _image_media_type(file.read(16))
+        return FileResponse(path, media_type=media_type, headers=headers)
+    payload = image_storage_service.get_bytes(relative_path)
+    return Response(content=payload, media_type=_image_media_type(payload), headers=headers)
 
 
 def _thumbnail_path(relative_path: str) -> Path:
@@ -121,16 +130,19 @@ def get_image_download_response(relative_path: str) -> FileResponse:
     }
     if image_storage_service.has_local(relative_path):
         path = _safe_image_path(relative_path)
+        with path.open("rb") as file:
+            media_type = _image_media_type(file.read(16))
         headers = {**cors_headers, "Content-Disposition": f'attachment; filename="{path.name}"'}
-        return FileResponse(path, filename=path.name, headers=headers)
+        return FileResponse(path, filename=path.name, media_type=media_type, headers=headers)
     rel = _safe_relative_path(relative_path)
+    payload = image_storage_service.get_bytes(rel)
     headers = {
         **cors_headers,
         "Content-Disposition": f'attachment; filename="{Path(rel).name}"',
     }
     return Response(
-        content=image_storage_service.get_bytes(rel),
-        media_type="image/png",
+        content=payload,
+        media_type=_image_media_type(payload),
         headers=headers,
     )
 
@@ -284,7 +296,7 @@ def delete_to_target(target_free_mb: int, dry_run: bool = False) -> dict:
         return {"removed": 0, "current_free_mb": current_free, "target_free_mb": target_free_mb, "done": True}
 
     files = sorted(
-        (p for p in config.images_dir.rglob("*.png") if p.is_file()),
+        (p for p in config.images_dir.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
         key=lambda p: p.stat().st_mtime,
     )
     removed = 0

@@ -317,9 +317,38 @@ def _parse_jpeg_size(img_bytes: bytes) -> tuple[int, int] | None:
     return None
 
 
+def _parse_webp_size(img_bytes: bytes) -> tuple[int, int] | None:
+    if len(img_bytes) < 30 or img_bytes[:4] != b"RIFF" or img_bytes[8:12] != b"WEBP":
+        return None
+    offset = 12
+    while offset + 8 <= len(img_bytes):
+        chunk_type = img_bytes[offset:offset + 4]
+        chunk_size = int.from_bytes(img_bytes[offset + 4:offset + 8], "little")
+        payload_start = offset + 8
+        payload_end = payload_start + chunk_size
+        if payload_end > len(img_bytes):
+            return None
+        payload = img_bytes[payload_start:payload_end]
+        if chunk_type == b"VP8X" and len(payload) >= 10:
+            width = 1 + (payload[4] | (payload[5] << 8) | (payload[6] << 16))
+            height = 1 + (payload[7] | (payload[8] << 8) | (payload[9] << 16))
+            return width, height
+        if chunk_type == b"VP8 " and len(payload) >= 10 and payload[3:6] == b"\x9d\x01\x2a":
+            width = payload[6] | ((payload[7] & 0x3F) << 8)
+            height = payload[8] | ((payload[9] & 0x3F) << 8)
+            return width, height
+        if chunk_type == b"VP8L" and len(payload) >= 5 and payload[0] == 0x2F:
+            bits = int.from_bytes(payload[1:5], "little")
+            width = (bits & 0x3FFF) + 1
+            height = ((bits >> 14) & 0x3FFF) + 1
+            return width, height
+        offset = payload_end + (chunk_size & 1)
+    return None
+
+
 def _parse_image_size(img_bytes: bytes) -> tuple[int, int] | None:
     """只读文件头解析尺寸，避免 PIL 解码导致内存无法回收。"""
-    return _parse_png_size(img_bytes) or _parse_jpeg_size(img_bytes)
+    return _parse_png_size(img_bytes) or _parse_jpeg_size(img_bytes) or _parse_webp_size(img_bytes)
 
 
 def check_image_size(img_bytes: bytes, expected_size: str) -> tuple[bool, str | None]:
@@ -331,7 +360,7 @@ def check_image_size(img_bytes: bytes, expected_size: str) -> tuple[bool, str | 
 
     actual = _parse_image_size(img_bytes)
     if actual is None:
-        return False, "图片尺寸检测失败: 无法识别 PNG/JPEG 文件头"
+        return False, "图片尺寸检测失败: 无法识别 PNG/JPEG/WebP 文件头"
 
     actual_w, actual_h = actual
     if actual_w == expected_w and actual_h == expected_h:
@@ -368,9 +397,29 @@ def _image_bytes_from_item(item: dict, session: requests.Session) -> tuple[bytes
     return None, "响应解析错误: 缺少 b64_json 和 url 字段"
 
 
+def _normalize_output_format(value: object, default: str = "png") -> str:
+    text = str(value or default).strip().lower()
+    if text in {"jpg", "jpeg"}:
+        return "jpeg"
+    if text in {"png", "webp"}:
+        return text
+    return default
+
+
+def _image_extension(img_bytes: bytes) -> str:
+    if img_bytes.startswith(b"\xff\xd8"):
+        return "jpg"
+    if img_bytes.startswith(b"\x89PNG"):
+        return "png"
+    if len(img_bytes) >= 12 and img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
+        return "webp"
+    return "png"
+
+
 def generate_image(base_url: str, api_key: str, model: str, prompt: str,
                    size: str, quality: str,
-                   response_format: str = "b64_json") -> tuple[bool, float, str | None, bytes | None]:
+                   response_format: str = "b64_json",
+                   output_format: str = "png") -> tuple[bool, float, str | None, bytes | None]:
     """
     调用 OpenAI 兼容的图像生成接口。
     返回 (是否成功, 响应耗时秒数, 错误信息, 解码后的图片 bytes)。
@@ -405,6 +454,8 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
         "quality": quality,
 
         "response_format": fmt,
+
+        "output_format": _normalize_output_format(output_format),
 
     }
 
@@ -549,10 +600,11 @@ def save_generated_image(img_bytes: bytes, output_dir: Path) -> Path | None:
     try:
         with _image_save_lock:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            path = output_dir / f"{ts}.png"
+            ext = _image_extension(img_bytes)
+            path = output_dir / f"{ts}.{ext}"
             while path.exists():
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                path = output_dir / f"{ts}.png"
+                path = output_dir / f"{ts}.{ext}"
             with open(path, "wb") as f:
                 f.write(img_bytes)
         return path
@@ -630,6 +682,8 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
             quality=api_cfg["image_quality"],
 
             response_format=api_cfg.get("response_format", "b64_json"),
+
+            output_format=api_cfg.get("output_format", "png"),
 
         )
 
@@ -866,6 +920,8 @@ def main():
     logger.info("  模型          : %s", config["api"]["model"])
 
     logger.info("  响应格式      : %s", config["api"].get("response_format", "b64_json"))
+
+    logger.info("  输出格式      : %s", config["api"].get("output_format", "png"))
 
     logger.info("  已加载提示词  : %d 条", len(config["prompts"]))
 

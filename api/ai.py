@@ -22,12 +22,15 @@ from services.protocol import (
 
 
 class ImageGenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
     prompt: str = Field(..., min_length=1)
     model: str = "gpt-image-2"
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = None
     quality: str = "auto"
     response_format: str = "b64_json"
+    output_format: str = "png"
+    output_compression: int | None = None
     history_disabled: bool = True
     stream: bool | None = None
 

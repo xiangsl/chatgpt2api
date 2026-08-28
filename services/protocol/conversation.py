@@ -344,6 +344,8 @@ class ConversationRequest:
     size: str | None = None
     quality: str = "auto"
     response_format: str = "b64_json"
+    output_format: str = "png"
+    output_compression: int | None = None
     base_url: str | None = None
     message_as_error: bool = False
     progress_callback: Any = None  # Callable[[str], None] | None
@@ -1249,6 +1251,8 @@ def stream_codex_image_outputs(
         images=request.images or [],
         size=request.size,
         quality=request.quality,
+        output_format=request.output_format,
+        output_compression=request.output_compression,
     )))
     if not images:
         raise ImageGenerationError("No image result found in response")
