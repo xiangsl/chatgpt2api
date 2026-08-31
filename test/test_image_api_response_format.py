@@ -126,6 +126,43 @@ class ImageApiResponseFormatTests(unittest.TestCase):
         self.assertEqual(finalized[0].data[0]["b64_json"], original)
         save.assert_not_called()
 
+    def test_auto_size_keeps_original_pixels(self) -> None:
+        original = _png_b64(64, 32)
+        for size in ("auto", None, ""):
+            with self.subTest(size=size):
+                outputs = [
+                    ImageOutput(
+                        kind="result",
+                        model="gpt-image-2",
+                        index=1,
+                        total=1,
+                        data=[{"b64_json": original, "revised_prompt": "cat"}],
+                    ),
+                ]
+                with mock.patch(
+                    "services.protocol.openai_v1_image_generations.save_image_bytes",
+                    return_value="",
+                ) as save:
+                    finalized = list(finalize_image_outputs(outputs, size, "b64_json"))
+
+                item = finalized[0].data[0]
+                self.assertEqual(item["b64_json"], original)
+                self.assertEqual(image_size_from_bytes(base64.b64decode(item["b64_json"])), (64, 32))
+                save.assert_not_called()
+
+    def test_auto_size_converts_format_without_resize(self) -> None:
+        with mock.patch(
+            "services.protocol.openai_v1_image_generations.save_image_bytes",
+            return_value="",
+        ):
+            finalized = list(
+                finalize_image_outputs(self._result(64, 32), "AUTO", "b64_json", output_format="jpeg")
+            )
+
+        payload = base64.b64decode(finalized[1].data[0]["b64_json"])
+        self.assertEqual(output_format_from_bytes(payload), "jpeg")
+        self.assertEqual(image_size_from_bytes(payload), (64, 32))
+
 
 if __name__ == "__main__":
     unittest.main()

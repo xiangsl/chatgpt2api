@@ -351,8 +351,10 @@ def _parse_image_size(img_bytes: bytes) -> tuple[int, int] | None:
     return _parse_png_size(img_bytes) or _parse_jpeg_size(img_bytes) or _parse_webp_size(img_bytes)
 
 
-def check_image_size(img_bytes: bytes, expected_size: str) -> tuple[bool, str | None]:
-    """校验生成图片的实际尺寸是否与期望一致。"""
+def check_image_size(img_bytes: bytes, expected_size: str | None) -> tuple[bool, str | None]:
+    """校验生成图片的实际尺寸是否与期望一致。size=auto 时不校验。"""
+    if str(expected_size or "").strip().lower() in {"", "auto"}:
+        return True, None
     try:
         expected_w, expected_h = (int(part) for part in expected_size.lower().split("x", 1))
     except ValueError:
@@ -417,7 +419,7 @@ def _image_extension(img_bytes: bytes) -> str:
 
 
 def generate_image(base_url: str, api_key: str, model: str, prompt: str,
-                   size: str, quality: str,
+                   size: str | None = None, quality: str = "auto",
                    response_format: str = "b64_json",
                    output_format: str = "png") -> tuple[bool, float, str | None, bytes | None]:
     """
@@ -449,8 +451,6 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
 
         "n": 1,
 
-        "size": size,
-
         "quality": quality,
 
         "response_format": fmt,
@@ -458,6 +458,8 @@ def generate_image(base_url: str, api_key: str, model: str, prompt: str,
         "output_format": _normalize_output_format(output_format),
 
     }
+    if size:
+        payload["size"] = size
 
     session = _get_http_session()
     resp = None
@@ -677,9 +679,9 @@ def worker(thread_id: int, config: dict, stop_event: threading.Event,
 
             prompt=prompt,
 
-            size=api_cfg["image_size"],
+            size=api_cfg.get("image_size"),
 
-            quality=api_cfg["image_quality"],
+            quality=api_cfg.get("image_quality", "auto"),
 
             response_format=api_cfg.get("response_format", "b64_json"),
 

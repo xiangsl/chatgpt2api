@@ -44,8 +44,10 @@ def load_prompt(prompt_path: str = "prompt.txt") -> str:
     return text
 
 
-def check_image_size(b64_json: str, expected_size: str) -> tuple[bool, str | None]:
-    """校验生成图片的实际尺寸是否与期望一致。"""
+def check_image_size(b64_json: str, expected_size: str | None) -> tuple[bool, str | None]:
+    """校验生成图片的实际尺寸是否与期望一致。size=auto 时不校验。"""
+    if str(expected_size or "").strip().lower() in {"", "auto"}:
+        return True, None
     try:
         expected_w, expected_h = (int(part) for part in expected_size.lower().split("x", 1))
     except ValueError:
@@ -111,8 +113,8 @@ def generate_image(
     api_key: str,
     model: str,
     prompt: str,
-    size: str,
-    quality: str,
+    size: str | None = None,
+    quality: str = "auto",
     response_format: str = "b64_json",
     output_format: str = "png",
 ) -> tuple[bool, float, str | None, str | None]:
@@ -133,11 +135,12 @@ def generate_image(
         "model": model,
         "prompt": prompt,
         "n": 1,
-        "size": size,
         "quality": quality,
         "response_format": fmt,
         "output_format": _normalize_output_format(output_format),
     }
+    if size:
+        payload["size"] = size
 
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=900)
@@ -219,7 +222,7 @@ def main():
 
     logger.info("开始生成图像")
     logger.info("  模型   : %s", api_cfg["model"])
-    logger.info("  尺寸   : %s", api_cfg["image_size"])
+    logger.info("  尺寸   : %s", api_cfg.get("image_size") or "auto")
     logger.info("  输出格式 : %s", api_cfg.get("output_format", "png"))
     logger.info("  提示词 : %s", prompt[:80] + ("..." if len(prompt) > 80 else ""))
 
@@ -228,8 +231,8 @@ def main():
         api_key=api_cfg["api_key"],
         model=api_cfg["model"],
         prompt=prompt,
-        size=api_cfg["image_size"],
-        quality=api_cfg["image_quality"],
+        size=api_cfg.get("image_size"),
+        quality=api_cfg.get("image_quality", "auto"),
         response_format=api_cfg.get("response_format", "b64_json"),
         output_format=api_cfg.get("output_format", "png"),
     )

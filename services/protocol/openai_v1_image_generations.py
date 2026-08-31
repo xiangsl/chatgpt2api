@@ -114,13 +114,21 @@ def limit_collected_image_data(result: dict[str, Any], n: object) -> dict[str, A
     return result
 
 
+def is_auto_image_size(size: object) -> bool:
+    return str(size or "").strip().lower() in {"", "auto"}
+
+
 def resolve_stream_image_outputs(request: ConversationRequest) -> Iterator[ImageOutput]:
+    if is_auto_image_size(request.size):
+        return stream_image_outputs_with_pool(request)
     if is_extreme_aspect_ratio(request.size):
         return stream_image_outputs_with_pools(request)
     return stream_image_outputs_with_ratio_retry(request)
 
 
 def is_extreme_aspect_ratio(size: object) -> bool:
+    if is_auto_image_size(size):
+        return False
     width, height = parse_image_size(size)
     if width <= 0 or height <= 0:
         return False
@@ -192,7 +200,7 @@ def normalize_collected_image_sizes(
     base_url: str | None = None,
     output_format: str = "png",
 ) -> dict[str, Any]:
-    target_size = parse_image_size(size)
+    target_size = None if is_auto_image_size(size) else parse_image_size(size)
     data = result.get("data")
     if not isinstance(data, list):
         return result
@@ -206,14 +214,19 @@ def normalize_collected_image_sizes(
             continue
         actual_size = image_size_from_bytes(image_bytes)
         same_format = output_format_from_bytes(image_bytes) == target_format
-        if actual_size == target_size and same_format:
-            continue
-        encoded_bytes = encode_image_bytes(
-            image_bytes,
-            output_format=target_format,
-            width=target_size[0],
-            height=target_size[1],
-        )
+        if target_size is None:
+            if same_format:
+                continue
+            encoded_bytes = encode_image_bytes(image_bytes, output_format=target_format)
+        else:
+            if actual_size == target_size and same_format:
+                continue
+            encoded_bytes = encode_image_bytes(
+                image_bytes,
+                output_format=target_format,
+                width=target_size[0],
+                height=target_size[1],
+            )
         if encoded_bytes == image_bytes:
             continue
         apply_resized_image_to_result_item(item, encoded_bytes, response_format, base_url)

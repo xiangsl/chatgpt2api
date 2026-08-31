@@ -795,7 +795,7 @@ class OpenAIBackendAPI:
             "type": "image_generation",
             "model": "gpt-image-2",
             "action": "edit" if images else "generate",
-            "size": str(size or "1024x1024"),
+            "size": str(size or "").strip() or "auto",
             "quality": str(quality or "auto"),
             "output_format": output_format or "png",
         }
