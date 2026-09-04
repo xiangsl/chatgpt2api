@@ -141,6 +141,26 @@ def start_account_full_refresh_scheduler(stop_event: Event) -> Thread:
     return thread
 
 
+def start_account_persist_scheduler(stop_event: Event) -> Thread:
+    def worker() -> None:
+        while not stop_event.is_set():
+            interval_seconds = max(1, int(config.account_persist_interval_seconds))
+            if stop_event.wait(interval_seconds):
+                break
+            try:
+                account_service._flush_accounts()
+            except Exception as exc:
+                print(f"[account-persist] fail {exc}")
+        try:
+            account_service._flush_accounts()
+        except Exception as exc:
+            print(f"[account-persist] final flush fail {exc}")
+
+    thread = Thread(target=worker, name="account-persist", daemon=True)
+    thread.start()
+    return thread
+
+
 def resolve_web_asset(requested_path: str) -> Path | None:
     if not WEB_DIST_DIR.exists():
         return None

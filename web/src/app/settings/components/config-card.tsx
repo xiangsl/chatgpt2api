@@ -23,6 +23,7 @@ export function ConfigCard() {
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
   const setRefreshAccountIntervalMinute = useSettingsStore((state) => state.setRefreshAccountIntervalMinute);
+  const setAccountPersistIntervalSeconds = useSettingsStore((state) => state.setAccountPersistIntervalSeconds);
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
@@ -90,7 +91,7 @@ export function ConfigCard() {
           管理员登录密钥继续从部署配置读取，不再在此页面展示；如需分发给其他人，请在下方创建普通用户密钥。
         </div>
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 md:col-span-2">
+          <div className="space-y-2">
             <label className="text-sm text-stone-700">账号刷新间隔</label>
             <Input
               value={String(config?.refresh_account_interval_minute || "")}
@@ -99,6 +100,16 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">单位分钟，控制账号自动刷新频率。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">存盘间隔</label>
+            <Input
+              value={String(config?.account_persist_interval_seconds || "")}
+              onChange={(event) => setAccountPersistIntervalSeconds(event.target.value)}
+              placeholder="秒"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">单位秒，账号变更先留在内存，按此间隔写入磁盘。</p>
           </div>
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm text-stone-700">

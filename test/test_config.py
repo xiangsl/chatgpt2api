@@ -58,6 +58,17 @@ class ConfigLoadingTests(unittest.TestCase):
                 else:
                     module.os.environ["CHATGPT2API_AUTH_KEY"] = old_env_auth_key
 
+    def test_account_persist_interval_seconds_defaults_and_clamps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = self.config_module.ConfigStore(config_path)
+            self.assertEqual(store.account_persist_interval_seconds, 5)
+            store.update({"account_persist_interval_seconds": 8})
+            self.assertEqual(store.account_persist_interval_seconds, 8)
+            store.update({"account_persist_interval_seconds": 0})
+            self.assertEqual(store.account_persist_interval_seconds, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,9 +18,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 5G
+          memory: 9G
         reservations:
-          memory: 5G
+          memory: 9G
     #environment:
     #  STORAGE_BACKEND: sqlite
     #  DATABASE_URL: sqlite:////app/data/accounts.db

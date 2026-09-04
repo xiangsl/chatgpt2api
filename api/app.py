@@ -10,7 +10,12 @@ from fastapi.responses import FileResponse
 
 from api import accounts, ai, image_tasks, register, system
 from api.errors import install_exception_handlers
-from api.support import resolve_web_asset, start_account_full_refresh_scheduler, start_limited_account_watcher
+from api.support import (
+    resolve_web_asset,
+    start_account_full_refresh_scheduler,
+    start_account_persist_scheduler,
+    start_limited_account_watcher,
+)
 from services.backup_service import backup_service
 from services.config import config
 from services.image_service import start_image_cleanup_scheduler
@@ -25,6 +30,7 @@ def create_app() -> FastAPI:
         stop_event = Event()
         thread = start_limited_account_watcher(stop_event)
         full_refresh_thread = start_account_full_refresh_scheduler(stop_event)
+        persist_thread = start_account_persist_scheduler(stop_event)
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         backup_service.start()
         config.cleanup_old_images()
@@ -34,6 +40,7 @@ def create_app() -> FastAPI:
             stop_event.set()
             thread.join(timeout=1)
             full_refresh_thread.join(timeout=1)
+            persist_thread.join(timeout=3)
             cleanup_thread.join(timeout=1)
             backup_service.stop()
 

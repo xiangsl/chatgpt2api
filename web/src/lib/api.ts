@@ -185,6 +185,7 @@ export type SettingsConfig = {
     prompt?: string;
   };
   refresh_account_interval_minute?: number | string;
+  account_persist_interval_seconds?: number | string;
   image_retention_days?: number | string;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;

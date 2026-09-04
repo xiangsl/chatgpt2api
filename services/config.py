@@ -442,6 +442,13 @@ class ConfigStore:
             return 5
 
     @property
+    def account_persist_interval_seconds(self) -> int:
+        try:
+            return max(1, int(self.data.get("account_persist_interval_seconds", 5)))
+        except (TypeError, ValueError):
+            return 5
+
+    @property
     def full_refresh_account_interval_minute(self) -> int:
         try:
             return max(0, int(self.data.get("full_refresh_account_interval_minute", 0)))
@@ -625,6 +632,7 @@ class ConfigStore:
     def get(self) -> dict[str, object]:
         data = dict(self.data)
         data["refresh_account_interval_minute"] = self.refresh_account_interval_minute
+        data["account_persist_interval_seconds"] = self.account_persist_interval_seconds
         data["full_refresh_account_interval_minute"] = self.full_refresh_account_interval_minute
         data["image_retention_days"] = self.image_retention_days
         data["image_sse_timeout_secs"] = self.image_sse_timeout_secs

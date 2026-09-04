@@ -52,6 +52,8 @@ class AccountService:
     def __init__(self, storage_backend: StorageBackend):
         self.storage = storage_backend
         self._lock = Lock()
+        self._persist_io_lock = Lock()
+        self._persist_pending = False
         self._token_refresh_lock = Lock()
         self._image_slot_condition = Condition(self._lock)
         self._index = 0
@@ -251,7 +253,25 @@ class AccountService:
         }
 
     def _save_accounts(self) -> None:
-        self.storage.save_accounts(list(self._accounts.values()))
+        """Mark the in-memory pool dirty. Caller must hold `_lock`. Disk flush is periodic."""
+        self._persist_pending = True
+
+    def _flush_accounts(self) -> None:
+        """Write a snapshot to storage without holding `_lock` during I/O."""
+        if not self._persist_pending:
+            return
+        with self._persist_io_lock:
+            with self._lock:
+                if not self._persist_pending:
+                    return
+                items = [dict(item) for item in self._accounts.values()]
+                self._persist_pending = False
+            try:
+                self.storage.save_accounts(items)
+            except Exception:
+                with self._lock:
+                    self._persist_pending = True
+                raise
 
     @staticmethod
     def _is_image_account_available(account: dict) -> bool:
@@ -528,45 +548,45 @@ class AccountService:
     def _apply_refreshed_tokens(self, old_access_token: str, token_data: dict, event: str) -> str:
         now = datetime.now(timezone.utc).isoformat()
         with self._image_slot_condition:
-            old_token = self._resolve_access_token_locked(old_access_token)
-            current = self._accounts.get(old_token)
-            if current is None:
-                return old_token
-            new_token = str(token_data.get("access_token") or old_token).strip()
-            if not new_token:
-                return old_token
+                old_token = self._resolve_access_token_locked(old_access_token)
+                current = self._accounts.get(old_token)
+                if current is None:
+                    return old_token
+                new_token = str(token_data.get("access_token") or old_token).strip()
+                if not new_token:
+                    return old_token
 
-            next_item = dict(current)
-            next_item["access_token"] = new_token
-            if token_data.get("refresh_token"):
-                next_item["refresh_token"] = str(token_data.get("refresh_token") or "").strip()
-            if token_data.get("id_token"):
-                next_item["id_token"] = str(token_data.get("id_token") or "").strip()
-            next_item["last_token_refresh_at"] = now
-            next_item["last_token_refresh_error"] = None
-            next_item["last_token_refresh_error_at"] = None
-            next_item["invalid_count"] = 0
-            next_item["last_invalid_at"] = None
-            next_item["last_refresh_error"] = None
-            next_item["last_refresh_error_at"] = None
+                next_item = dict(current)
+                next_item["access_token"] = new_token
+                if token_data.get("refresh_token"):
+                    next_item["refresh_token"] = str(token_data.get("refresh_token") or "").strip()
+                if token_data.get("id_token"):
+                    next_item["id_token"] = str(token_data.get("id_token") or "").strip()
+                next_item["last_token_refresh_at"] = now
+                next_item["last_token_refresh_error"] = None
+                next_item["last_token_refresh_error_at"] = None
+                next_item["invalid_count"] = 0
+                next_item["last_invalid_at"] = None
+                next_item["last_refresh_error"] = None
+                next_item["last_refresh_error_at"] = None
 
-            account = self._normalize_account(next_item)
-            if account is None:
-                return old_token
+                account = self._normalize_account(next_item)
+                if account is None:
+                    return old_token
 
-            rotated = new_token != old_token
-            if rotated:
-                self._accounts.pop(old_token, None)
-                self._token_aliases[old_token] = new_token
-                old_inflight = int(self._image_inflight.pop(old_token, 0))
-                if old_inflight:
-                    self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
-                old_times = self._image_inflight_times.pop(old_token, [])
-                if old_times:
-                    self._image_inflight_times.setdefault(new_token, []).extend(old_times)
-            self._accounts[new_token] = account
-            self._save_accounts()
-            self._image_slot_condition.notify_all()
+                rotated = new_token != old_token
+                if rotated:
+                    self._accounts.pop(old_token, None)
+                    self._token_aliases[old_token] = new_token
+                    old_inflight = int(self._image_inflight.pop(old_token, 0))
+                    if old_inflight:
+                        self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
+                    old_times = self._image_inflight_times.pop(old_token, [])
+                    if old_times:
+                        self._image_inflight_times.setdefault(new_token, []).extend(old_times)
+                self._accounts[new_token] = account
+                self._save_accounts()
+                self._image_slot_condition.notify_all()
 
         log_service.add(
             LOG_TYPE_ACCOUNT,

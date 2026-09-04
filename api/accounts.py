@@ -261,12 +261,16 @@ def create_router() -> APIRouter:
     async def get_normal_account_stats(authorization: str | None = Header(default=None)):
         """Return the count and total image quota of accounts with status 正常."""
         require_admin(authorization)
-        stats = account_service.get_stats()
-        return {
-            "active_count": stats["active"],
-            "total_quota": stats["total_quota"],
-            "invalid_account_recent_success_total": account_service.get_invalid_account_recent_success_total(),
-        }
+
+        def read_stats() -> dict[str, int]:
+            stats = account_service.get_stats()
+            return {
+                "active_count": stats["active"],
+                "total_quota": stats["total_quota"],
+                "invalid_account_recent_success_total": account_service.get_invalid_account_recent_success_total(),
+            }
+
+        return await run_in_threadpool(read_stats)
 
     @router.post("/api/accounts/stats/invalid/reset")
     async def reset_invalid_account_stats(authorization: str | None = Header(default=None)):

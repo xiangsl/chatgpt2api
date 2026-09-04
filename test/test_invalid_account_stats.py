@@ -119,6 +119,27 @@ class InvalidAccountStatsTests(unittest.TestCase):
         self.assertEqual(self.success_stats_file.read_text(), "0")
         self.assertEqual(self.recent_stats_file.read_text(), "[]")
 
+    def test_mark_image_result_does_not_flush_accounts_to_disk(self) -> None:
+        self.service.add_accounts(["token-1"])
+        self.service.update_account("token-1", {"status": "正常", "quota": 3})
+        save_calls: list[int] = []
+        original_save = self.service.storage.save_accounts
+
+        def track_save(accounts):
+            save_calls.append(len(accounts))
+            original_save(accounts)
+
+        self.service.storage.save_accounts = track_save
+        updated = self.service.mark_image_result("token-1", success=True)
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated["quota"], 2)
+        self.assertEqual(save_calls, [])
+        self.assertTrue(self.service._persist_pending)
+        self.service._flush_accounts()
+        self.assertEqual(save_calls, [1])
+        self.assertEqual(self.service.get_stats()["total_quota"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
