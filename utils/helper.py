@@ -16,7 +16,8 @@ from fastapi import HTTPException
 from utils.image_format import mime_type_from_base64
 from utils.log import logger
 
-BASE_IMAGE_MODELS = {"gpt-image-2", "codex-gpt-image-2"}
+WEB_IMAGE_25_MODEL = "gpt-image-2.5-flare"
+BASE_IMAGE_MODELS = {"gpt-image-2", WEB_IMAGE_25_MODEL, "codex-gpt-image-2"}
 IMAGE_MODEL_PLAN_TYPES = ("plus", "team", "pro")
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 PREFIXED_CODEX_IMAGE_MODELS = {
@@ -131,6 +132,11 @@ def is_supported_image_model(model: object) -> bool:
 def is_codex_image_model(model: object) -> bool:
     _, base_model = split_image_model(model)
     return base_model == CODEX_IMAGE_MODEL
+
+
+def is_image_25_model(model: object) -> bool:
+    _, base_model = split_image_model(model)
+    return base_model == WEB_IMAGE_25_MODEL
 
 
 def is_image_chat_request(body: dict[str, object]) -> bool:

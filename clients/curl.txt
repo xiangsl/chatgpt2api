@@ -22,7 +22,7 @@ model              模型名，如 gpt-image-2
 prompt             生图提示词
 n                  生成张数，通常 1
 size               分辨率，格式 宽x高，如 1024x1024
-quality            质量：low / medium / high / auto
+quality            质量：auto / low / medium / high / xhigh / max
 background         背景：auto / opaque / transparent（gpt-image-2 不支持透明）
 moderation         审核强度：auto / low
 output_format      图片格式：png / jpeg / webp

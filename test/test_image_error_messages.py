@@ -43,6 +43,11 @@ class ImageErrorMessageTests(unittest.TestCase):
             result,
         )
 
+    def test_build_image_prompt_accepts_official_flare_quality_values(self):
+        for quality in ("xhigh", "max", "XHIGH"):
+            result = build_image_prompt("画一只猫", None, quality)
+            self.assertIn(f"输出图片质量为 {quality.strip().lower()}。", result)
+
     def test_long_prompt_empty_upstream_500_suggests_shortening_prompt(self):
         message = image_stream_error_message(EMPTY_CONVERSATION_500, "a" * 20_001)
 

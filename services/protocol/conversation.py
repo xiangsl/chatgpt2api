@@ -23,6 +23,7 @@ from utils.helper import (
     IMAGE_MODELS,
     extract_image_from_message_content,
     is_codex_image_model,
+    is_image_25_model,
     is_supported_image_model,
     split_image_model,
 )
@@ -258,10 +259,16 @@ def assistant_history_messages(messages: list[dict[str, Any]]) -> list[str]:
     return [str(item.get("content") or "") for item in messages if item.get("role") == "assistant" and item.get("content")]
 
 
+def normalize_image_quality(quality: object) -> str:
+    text = str(quality or "auto").strip().lower()
+    return text or "auto"
+
+
 def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
     hints = []
     if size:
         hints.append(f"输出图片尺寸为 {size}。")
+    quality = normalize_image_quality(quality)
     if quality:
         hints.append(f"输出图片质量为 {quality}。")
     base = f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
@@ -705,12 +712,18 @@ def conversation_events(
     history_text = "" if image_model else assistant_history_text(normalized)
     history_messages = [] if image_model else assistant_history_messages(normalized)
     final_prompt = prompt_with_global_system(build_image_prompt(prompt, size, quality)) if image_model else prompt
+    if is_image_25_model(model):
+        system_hints = ["image_25"]
+    elif image_model:
+        system_hints = ["picture_v2"]
+    else:
+        system_hints = None
     payloads = backend.stream_conversation(
         messages=normalized,
         model=model,
         prompt=final_prompt,
         images=images if image_model else None,
-        system_hints=["picture_v2"] if image_model else None,
+        system_hints=system_hints,
     )
     yield from iter_conversation_payloads(payloads, history_text, history_messages)
 

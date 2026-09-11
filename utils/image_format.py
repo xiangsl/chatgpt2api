@@ -6,6 +6,8 @@ from typing import Any
 
 from PIL import Image
 
+from utils.log import logger
+
 OUTPUT_FORMATS = {"png", "jpeg", "webp"}
 JPEG_HEADER = b"\xff\xd8\xff"
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
@@ -90,6 +92,7 @@ def encode_image_bytes(
             return image_bytes
         prepared = _prepare_pil_image(image, target_format)
         if prepared.size != target_size:
+            logger.error(f"原始：{size[0]}*{size[1]}-->目标：{target_size[0]}*{target_size[1]}")
             prepared = prepared.resize(target_size, Image.Resampling.LANCZOS)
         return _save_pil_image(prepared, target_format)
 

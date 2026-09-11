@@ -23,7 +23,15 @@ from services.account_service import account_service
 from services.config import config
 from services.proxy_service import proxy_settings, wrap_session_with_proxy_retry
 from services.register.account_fp import REGISTER_BACKEND_FP_DEFAULTS
-from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
+from utils.helper import (
+    WEB_IMAGE_25_MODEL,
+    UpstreamHTTPError,
+    ensure_ok,
+    is_image_25_model,
+    iter_sse_payloads,
+    new_uuid,
+    split_image_model,
+)
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from utils.turnstile import solve_turnstile_token
@@ -56,6 +64,13 @@ DEFAULT_CLIENT_VERSION = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887"
 DEFAULT_CLIENT_BUILD_NUMBER = "6708908"
 DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
+IMAGE_25_RESPONSE_CONTRACTS = [
+    {
+        "id": "photo_upload_action.v1",
+        "protocol_version": 1,
+        "presets": ["cap:image", "cap:file", "placement:end"],
+    }
+]
 CODEX_RESPONSES_MODEL = "gpt-5.5"
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
@@ -192,6 +207,7 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
+        self._image_input_file_ids: set[str] = set()
         session_kwargs = proxy_settings.build_session_kwargs(
             account=self.account,
             impersonate=self.fp["impersonate"],
@@ -212,6 +228,7 @@ class OpenAIBackendAPI:
         resource_session = getattr(self, "resource_session", None)
         self.session = None
         self.resource_session = None
+        self._image_input_file_ids = set()
         for candidate in (session, resource_session):
             if candidate is None:
                 continue
@@ -579,6 +596,8 @@ class OpenAIBackendAPI:
             return "auto"
         if base_model == "gpt-image-2":
             return "gpt-5-3"
+        if base_model == WEB_IMAGE_25_MODEL:
+            return "auto"
         if base_model == CODEX_IMAGE_MODEL:
             return base_model
         return "auto"
@@ -971,6 +990,7 @@ class OpenAIBackendAPI:
         ensure_ok(response, path)
         return {
             "file_id": upload_meta["file_id"],
+            "library_file_id": str(upload_meta.get("library_file_id") or ""),
             "file_name": file_name,
             "file_size": len(data),
             "mime_type": mime_type,
@@ -1049,6 +1069,161 @@ class OpenAIBackendAPI:
             stream=True,
         )
         ensure_ok(response, path)
+        return response
+
+    def _image_25_response_contracts(self) -> list[Dict[str, Any]]:
+        return [dict(item) for item in IMAGE_25_RESPONSE_CONTRACTS]
+
+    def _image_25_contextual_info(self, *, for_prepare: bool) -> Dict[str, Any]:
+        info = {
+            "app_name": "chatgpt.com",
+            "has_web_push_capabilities": True,
+            "web_push_notification_permission": "granted",
+        }
+        if for_prepare:
+            return info
+        info.update({
+            "is_dark_mode": False,
+            "time_since_loaded": 1200,
+            "page_height": 1072,
+            "page_width": 1724,
+            "pixel_ratio": 1.2,
+            "screen_height": 1440,
+            "screen_width": 2560,
+        })
+        return info
+
+    def _image_25_prepare_payload(self, prompt: str, model: str) -> Dict[str, Any]:
+        """ChatGPT Images 2.5 网页 prepare 请求体，对齐 文生图/图改图-新 HAR。"""
+        return {
+            "action": "next",
+            "parent_message_id": "client-created-root",
+            "model": self._image_model_slug(model),
+            "client_prepare_state": "success",
+            "timezone_offset_min": -480,
+            "timezone": "Asia/Shanghai",
+            "conversation_mode": {"kind": "primary_assistant"},
+            "system_hints": [],
+            "model_response_contracts": self._image_25_response_contracts(),
+            "partial_query": {
+                "id": new_uuid(),
+                "author": {"role": "user"},
+                "content": {"content_type": "text", "parts": [prompt]},
+            },
+            "supports_buffering": True,
+            "supported_encodings": ["v1"],
+            "client_contextual_info": self._image_25_contextual_info(for_prepare=True),
+            "local_function_names": ["local.continue_in_work"],
+        }
+
+    def _image_25_conversation_payload(
+            self,
+            prompt: str,
+            model: str,
+            references: Optional[list[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """ChatGPT Images 2.5 网页 conversation 请求体。
+
+        文生图对齐 文生图.har；图改图对齐 图改图-新.har（新会话 + 附件 multimodal）。
+        """
+        references = references or []
+        is_edit = bool(references)
+        metadata: Dict[str, Any] = {
+            "serialization_metadata": {"custom_symbol_offsets": []},
+            "submission_mode": "manual_send",
+        }
+        if is_edit:
+            parts: list[Any] = [{
+                "content_type": "image_asset_pointer",
+                "asset_pointer": f"sediment://{item['file_id']}",
+                "width": item["width"],
+                "height": item["height"],
+                "size_bytes": item["file_size"],
+            } for item in references]
+            parts.append(prompt)
+            content: Dict[str, Any] = {"content_type": "multimodal_text", "parts": parts}
+            metadata["attachments"] = [{
+                "id": item["file_id"],
+                "size": item["file_size"],
+                "name": item["file_name"],
+                "mime_type": item["mime_type"],
+                "width": item["width"],
+                "height": item["height"],
+                "source": "local",
+                **({"library_file_id": item["library_file_id"]} if item.get("library_file_id") else {}),
+                "is_big_paste": False,
+            } for item in references]
+            metadata["file_upload_slot_prefetch_attribution"] = {
+                "actual_path": "legacy",
+                "reason": "direct_library_multipart_preserved",
+            }
+        else:
+            content = {"content_type": "text", "parts": [prompt]}
+        return {
+            "action": "next",
+            "messages": [{
+                "id": new_uuid(),
+                "author": {"role": "user"},
+                "create_time": time.time(),
+                "content": content,
+                "metadata": metadata,
+            }],
+            "parent_message_id": "client-created-root",
+            "model": self._image_model_slug(model),
+            "client_prepare_state": "success",
+            "timezone_offset_min": -480,
+            "timezone": "Asia/Shanghai",
+            "conversation_mode": {"kind": "primary_assistant"},
+            "enable_message_followups": True,
+            "system_hints": [],
+            "model_response_contracts": self._image_25_response_contracts(),
+            "supports_buffering": True,
+            "supported_encodings": ["v1"],
+            "client_contextual_info": self._image_25_contextual_info(for_prepare=False),
+            "paragen_cot_summary_display_override": "allow",
+            "force_parallel_switch": "auto",
+            "local_function_names": ["local.continue_in_work"],
+        }
+
+    def _prepare_image_25_conversation(
+            self,
+            prompt: str,
+            requirements: ChatRequirements,
+            model: str,
+    ) -> str:
+        """为 Images 2.5 准备 conduit token。"""
+        path = "/backend-api/f/conversation/prepare"
+        response = self.session.post(
+            self.base_url + path,
+            headers=self._image_headers(path, requirements),
+            json=self._image_25_prepare_payload(prompt, model),
+            timeout=60,
+        )
+        ensure_ok(response, path)
+        return response.json().get("conduit_token", "")
+
+    def _start_image_25_generation(
+            self,
+            prompt: str,
+            requirements: ChatRequirements,
+            conduit_token: str,
+            model: str,
+            references: Optional[list[Dict[str, Any]]] = None,
+    ) -> requests.Response:
+        """启动 Images 2.5 生成或编辑的 SSE 请求。"""
+        path = "/backend-api/f/conversation"
+        response = self.session.post(
+            self.base_url + path,
+            headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
+            json=self._image_25_conversation_payload(prompt, model, references),
+            timeout=300,
+            stream=True,
+        )
+        try:
+            ensure_ok(response, path)
+        except Exception:
+            response.close()
+            raise
         return response
 
     def _get_conversation(self, conversation_id: str) -> Dict[str, Any]:
@@ -2232,10 +2407,10 @@ class OpenAIBackendAPI:
 
             for record in self._extract_image_tool_records(conversation):
                 for file_id in record["file_ids"]:
-                    if file_id not in file_ids:
+                    if file_id and file_id not in file_ids and file_id not in self._image_input_file_ids:
                         file_ids.append(file_id)
                 for sediment_id in record["sediment_ids"]:
-                    if sediment_id not in sediment_ids:
+                    if sediment_id and sediment_id not in sediment_ids and sediment_id not in self._image_input_file_ids:
                         sediment_ids.append(sediment_id)
 
             # 检查对话文本中是否包含内容政策违规错误
@@ -2394,6 +2569,15 @@ class OpenAIBackendAPI:
 
         return is_error, error_msg, metadata
 
+    def _exclude_input_image_ids(self, file_ids: list[str], sediment_ids: list[str]) -> tuple[list[str], list[str]]:
+        ignore = self._image_input_file_ids
+        if not ignore:
+            return file_ids, sediment_ids
+        return (
+            [item for item in file_ids if item and item not in ignore],
+            [item for item in sediment_ids if item and item not in ignore],
+        )
+
     def _resolve_image_urls(self, conversation_id: str, file_ids: list[str], sediment_ids: list[str]) -> list[str]:
         """把图片结果 id 解析成可下载 URL。"""
         urls = []
@@ -2478,6 +2662,7 @@ class OpenAIBackendAPI:
     ) -> list[str]:
         file_ids = [item for item in file_ids if item != "file_upload"]
         sediment_ids = list(sediment_ids)
+        file_ids, sediment_ids = self._exclude_input_image_ids(file_ids, sediment_ids)
         timeout = poll_timeout_secs if poll_timeout_secs is not None else config.image_poll_timeout_secs
         # 当 check-before-hit 和 settle 均已关闭，且 SSE 已给出 file_ids 时，
         # 跳过轮询直接解析 URL，省去 initial_wait + 轮询耗时。
@@ -2552,6 +2737,9 @@ class OpenAIBackendAPI:
             system_hints: Optional[list[str]] = None,
     ) -> Iterator[str]:
         system_hints = system_hints or []
+        if "image_25" in system_hints or is_image_25_model(model):
+            yield from self._stream_image_25_conversation(prompt, model, images or [])
+            return
         if "picture_v2" in system_hints:
             yield from self._stream_picture_conversation(prompt, model, images or [])
             return
@@ -2581,6 +2769,31 @@ class OpenAIBackendAPI:
                 self.progress_callback(step)
             except Exception:
                 pass
+
+    def _stream_image_25_conversation(
+            self,
+            prompt: str,
+            model: str,
+            images: list[str],
+    ) -> Iterator[str]:
+        if not self.access_token:
+            raise RuntimeError("access_token is required for image endpoints")
+        self._report_progress("uploading")
+        references = [self._upload_image(image, f"image_{idx}.png") for idx, image in enumerate(images, start=1)]
+        self._image_input_file_ids = {str(item["file_id"]) for item in references if item.get("file_id")}
+        self._report_progress("bootstrapping")
+        self._bootstrap()
+        self._report_progress("getting_token")
+        requirements = self._get_chat_requirements()
+        self._report_progress("preparing_conversation")
+        conduit_token = self._prepare_image_25_conversation(prompt, requirements, model)
+        self._report_progress("starting_generation")
+        response = self._start_image_25_generation(prompt, requirements, conduit_token, model, references)
+        self._report_progress("generating")
+        try:
+            yield from iter_sse_payloads(response, timeout_secs=config.image_sse_timeout_secs)
+        finally:
+            response.close()
 
     def _stream_picture_conversation(
             self,

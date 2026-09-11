@@ -254,7 +254,7 @@ def count_generated_image_tokens(width: int, height: int, quality: str = "auto")
     quality = str(quality or "auto").strip().lower()
     if quality == "low":
         return math.ceil(patches * 17 / 64)
-    if quality in {"high", "hd"}:
+    if quality in {"high", "hd", "xhigh", "max"}:
         return math.ceil(patches * 65 / 16)
     return math.ceil(patches * 33 / 32)
 

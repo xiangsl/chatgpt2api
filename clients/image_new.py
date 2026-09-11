@@ -8,10 +8,10 @@ import requests
 
 BASE_URL = "http://gpttap.top/v1"
 API_KEY = "sk-Ka00PMpOZ3xiYob65ByRjEo1NvrjHXksP7YBTSUl9FJMXoep"
-MODEL = "gpt-image-2"
-PROMPT = "帮我生成一张图片，上面要写满各种诗情画意的文字，文字越多越好，至少500字,字体采和微软雅黑"
-SIZE = "2560x1440"
-QUALITY = "high"
+MODEL = "gpt-image-2.5-flare"
+PROMPT = "以雪为题，画一幅画"
+SIZE = "3840x2160"
+QUALITY = "xhigh"
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 
 
@@ -28,7 +28,9 @@ def generate_image() -> bytes:
         "output_format": "png",
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=900)
-    resp.raise_for_status()
+    if not resp.ok:
+        print(resp.status_code, resp.text)
+        resp.raise_for_status()
     item = resp.json()["data"][0]
     if item.get("b64_json"):
         return base64.b64decode(item["b64_json"])
