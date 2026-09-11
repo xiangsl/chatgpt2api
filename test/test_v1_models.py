@@ -29,8 +29,8 @@ class ModelListTests(unittest.TestCase):
         ids = {item["id"] for item in result["data"]}
         self.assertIn("gpt-image-2", ids)
         self.assertIn("gpt-image-2.5-flare", ids)
-        self.assertNotIn("gpt-image-2.5", ids)
-        self.assertNotIn("gpt-image-2.5-sunburst", ids)
+        self.assertIn("gpt-image-2.5", ids)
+        self.assertIn("gpt-image-2.5-sunburst", ids)
         self.assertIn("codex-gpt-image-2", ids)
         self.assertIn("team-codex-gpt-image-2", ids)
         self.assertNotIn("plus-codex-gpt-image-2", ids)
@@ -56,7 +56,7 @@ class ModelListTests(unittest.TestCase):
         ids = {item["id"] for item in result["data"]}
         self.assertIn("gpt-image-2", ids)
         self.assertIn("gpt-image-2.5-flare", ids)
-        self.assertNotIn("gpt-image-2.5", ids)
-        self.assertNotIn("gpt-image-2.5-sunburst", ids)
+        self.assertIn("gpt-image-2.5", ids)
+        self.assertIn("gpt-image-2.5-sunburst", ids)
         self.assertNotIn("codex-gpt-image-2", ids)
         self.assertNotIn("plus-codex-gpt-image-2", ids)

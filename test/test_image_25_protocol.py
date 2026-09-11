@@ -18,11 +18,15 @@ class Image25ProtocolTests(unittest.TestCase):
 
     def test_image_25_is_a_supported_web_image_model(self) -> None:
         self.assertEqual(split_image_model("gpt-image-2.5-flare"), (None, "gpt-image-2.5-flare"))
+        self.assertEqual(split_image_model("gpt-image-2.5"), (None, "gpt-image-2.5-flare"))
+        self.assertEqual(split_image_model("gpt-image-2.5-sunburst"), (None, "gpt-image-2.5-flare"))
         self.assertTrue(is_supported_image_model("gpt-image-2.5-flare"))
+        self.assertTrue(is_supported_image_model("gpt-image-2.5"))
+        self.assertTrue(is_supported_image_model("gpt-image-2.5-sunburst"))
         self.assertTrue(is_image_25_model("gpt-image-2.5-flare"))
+        self.assertTrue(is_image_25_model("gpt-image-2.5"))
+        self.assertTrue(is_image_25_model("gpt-image-2.5-sunburst"))
         self.assertFalse(is_image_25_model("gpt-image-2"))
-        self.assertFalse(is_supported_image_model("gpt-image-2.5"))
-        self.assertFalse(is_supported_image_model("gpt-image-2.5-sunburst"))
 
     def test_image_model_slug_keeps_image_2_on_gpt_5_3(self) -> None:
         self.assertEqual(self.backend._image_model_slug("gpt-image-2"), "gpt-5-3")
