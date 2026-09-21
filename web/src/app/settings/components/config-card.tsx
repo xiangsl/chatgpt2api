@@ -52,20 +52,20 @@ export function ConfigCard() {
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
   const handleTestProxy = async () => {
-    const candidate = String(config?.proxy?.url || "").trim();
-    if (!candidate) {
+    const urls = (config?.proxy?.urls || []).map((item) => String(item || "").trim()).filter(Boolean);
+    if (!urls.length) {
       toast.error("请先填写代理地址");
       return;
     }
     setIsTestingProxy(true);
     setProxyTestResult(null);
     try {
-      const data = await testProxy(candidate);
+      const data = await testProxy("", urls);
       setProxyTestResult(data.result);
       if (data.result.ok) {
-        toast.success(`代理可用（${data.result.latency_ms} ms，HTTP ${data.result.status}）`);
+        toast.success(`全部代理可用（${urls.length} 个）`);
       } else {
-        toast.error(`代理不可用：${data.result.error ?? "未知错误"}`);
+        toast.error(data.result.error ?? "部分代理不可用");
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "测试代理失败");
@@ -119,17 +119,17 @@ export function ConfigCard() {
                 onCheckedChange={(checked) => setProxyField("enabled", Boolean(checked))}
               />
             </label>
-            <Input
-              value={String(config?.proxy?.url || "")}
+            <Textarea
+              value={(config?.proxy?.urls || []).join("\n")}
               onChange={(event) => {
                 setProxy(event.target.value);
                 setProxyTestResult(null);
               }}
-              placeholder="http://127.0.0.1:7890"
-              className="h-10 rounded-xl border-stone-200 bg-white"
+              placeholder={"http://127.0.0.1:7890\nhttp://no_proxy"}
+              className="min-h-24 rounded-xl border-stone-200 bg-white font-mono text-xs"
             />
             <p className="text-xs leading-5 text-stone-500">
-              勾选后启用。留空表示不使用代理。支持 http/https/socks5。示例 http://user:pass@127.0.0.1:7890、socks5://127.0.0.1:1080；也可粘贴 主机:端口:账号:密码。账号密码含 @/: 时需 URL 编码。GPT 上游无账号代理时走此代理；图片下载/上传直连。
+              勾选后启用。一行一个地址，每次请求随机选一个。`http://no_proxy` 表示直连。支持 http/https/socks5。示例 http://user:pass@127.0.0.1:7890、socks5://127.0.0.1:1080。GPT 上游无账号代理时走此列表；图片下载/上传直连。
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -154,15 +154,24 @@ export function ConfigCard() {
             <p className="text-xs text-stone-500">代理超时或连接失败时按间隔重连，写入 config.json 的 proxy.interval_secs / proxy.rounds。</p>
             {proxyTestResult ? (
               <div
-                className={`rounded-xl border px-3 py-2 text-xs leading-6 ${
+                className={`space-y-1 rounded-xl border px-3 py-2 text-xs leading-6 ${
                   proxyTestResult.ok
                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                     : "border-rose-200 bg-rose-50 text-rose-800"
                 }`}
               >
-                {proxyTestResult.ok
-                  ? `代理可用：HTTP ${proxyTestResult.status}，用时 ${proxyTestResult.latency_ms} ms`
-                  : `代理不可用：${proxyTestResult.error ?? "未知错误"}（用时 ${proxyTestResult.latency_ms} ms）`}
+                {(proxyTestResult.results && proxyTestResult.results.length > 0
+                  ? proxyTestResult.results
+                  : [{ url: "", ok: proxyTestResult.ok, status: proxyTestResult.status, latency_ms: proxyTestResult.latency_ms, error: proxyTestResult.error }]
+                ).map((item, index) => (
+                  <div key={`${item.url}-${index}`}>
+                    {item.skipped
+                      ? `${item.url || "http://no_proxy"}：直连（跳过探测）`
+                      : item.ok
+                        ? `${item.url || "代理"}：可用，HTTP ${item.status}，${item.latency_ms} ms`
+                        : `${item.url || "代理"}：不可用，${item.error ?? "未知错误"}`}
+                  </div>
+                ))}
               </div>
             ) : null}
             <div className="flex justify-end">

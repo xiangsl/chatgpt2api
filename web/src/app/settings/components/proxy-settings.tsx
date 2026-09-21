@@ -22,7 +22,7 @@ import {
 
 export function ProxySettingsCard() {
   const didLoadRef = useRef(false);
-  const [settings, setSettings] = useState<ProxySettings>({ enabled: false, url: "" });
+  const [settings, setSettings] = useState<ProxySettings>({ enabled: false, urls: [] });
   const [formUrl, setFormUrl] = useState("");
   const [formEnabled, setFormEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,7 +35,7 @@ export function ProxySettingsCard() {
     try {
       const data = await fetchProxy();
       setSettings(data.proxy);
-      setFormUrl(data.proxy.url);
+      setFormUrl((data.proxy.urls || []).join("\n"));
       setFormEnabled(data.proxy.enabled);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载代理配置失败");
@@ -52,7 +52,7 @@ export function ProxySettingsCard() {
     void load();
   }, []);
 
-  const urlChanged = formUrl.trim() !== settings.url;
+  const urlChanged = formUrl.trim() !== (settings.urls || []).join("\n");
   const enabledChanged = formEnabled !== settings.enabled;
   const dirty = urlChanged || enabledChanged;
 
@@ -68,7 +68,7 @@ export function ProxySettingsCard() {
       if (urlChanged) payload.url = formUrl.trim();
       const data = await updateProxy(payload);
       setSettings(data.proxy);
-      setFormUrl(data.proxy.url);
+      setFormUrl((data.proxy.urls || []).join("\n"));
       setFormEnabled(data.proxy.enabled);
       toast.success("代理配置已保存");
     } catch (error) {

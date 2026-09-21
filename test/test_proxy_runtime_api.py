@@ -25,7 +25,7 @@ class FakeStorage:
 class FakeConfig:
     def __init__(self) -> None:
         self.data: dict[str, object] = {
-            "proxy": {"url": "", "interval_secs": 2, "rounds": 3},
+            "proxy": {"urls": [], "interval_secs": 2, "rounds": 3},
             "proxy_runtime": copy.deepcopy(DEFAULT_PROXY_RUNTIME),
         }
 
@@ -39,7 +39,9 @@ class FakeConfig:
     def get_proxy_settings(self) -> str:
         proxy = self.data.get("proxy")
         if isinstance(proxy, dict):
-            return str(proxy.get("url") or "").strip()
+            urls = proxy.get("urls")
+            if isinstance(urls, list) and urls:
+                return str(urls[0] or "").strip()
         return ""
 
     def get_proxy_runtime_settings(self) -> dict[str, object]:
@@ -90,7 +92,7 @@ class ProxyRuntimeApiTests(unittest.TestCase):
         self.test_proxy_calls: list[str] = []
         self.test_clearance_calls: list[str] = []
 
-        def fake_test_proxy(url: str = "") -> dict[str, object]:
+        def fake_test_proxy(url: str = "", urls: list[str] | None = None) -> dict[str, object]:
             self.test_proxy_calls.append(url)
             return {
                 "ok": True,

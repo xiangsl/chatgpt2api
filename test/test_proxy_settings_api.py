@@ -27,7 +27,7 @@ class ProxySettingsApiTests(unittest.TestCase):
                     "auth-key": "chatgpt2api",
                     "proxy": {
                         "enabled": False,
-                        "url": "http://old.example:8080",
+                        "urls": ["http://old.example:8080"],
                         "interval_secs": 2,
                         "rounds": 3,
                     },
@@ -56,7 +56,8 @@ class ProxySettingsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertFalse(payload["proxy"]["enabled"])
-        self.assertEqual(payload["proxy"]["url"], "http://old.example:8080")
+        self.assertEqual(payload["proxy"]["urls"], ["http://old.example:8080"])
+        self.assertNotIn("url", payload["proxy"])
         self.assertFalse(payload["account_proxy_list_enabled"])
         self.assertEqual(payload["account_proxy_list"], ["http://keep.example:1"])
 
@@ -69,7 +70,8 @@ class ProxySettingsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertTrue(payload["proxy"]["enabled"])
-        self.assertEqual(payload["proxy"]["url"], "http://new.example:7890")
+        self.assertEqual(payload["proxy"]["urls"], ["http://new.example:7890"])
+        self.assertNotIn("url", payload["proxy"])
         self.assertEqual(payload["proxy"]["interval_secs"], 2)
         self.assertEqual(payload["proxy"]["rounds"], 3)
         self.assertFalse(payload["account_proxy_list_enabled"])
@@ -78,7 +80,7 @@ class ProxySettingsApiTests(unittest.TestCase):
     def test_clear_with_minus_one(self) -> None:
         self.config.update(
             {
-                "proxy": {"enabled": True, "url": "http://new.example:7890"},
+                "proxy": {"enabled": True, "urls": ["http://new.example:7890"]},
                 "account_proxy_list_enabled": True,
                 "account_proxy_list": ["http://a", "http://b"],
             }
@@ -96,7 +98,8 @@ class ProxySettingsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
         self.assertFalse(payload["proxy"]["enabled"])
-        self.assertEqual(payload["proxy"]["url"], "")
+        self.assertEqual(payload["proxy"]["urls"], [])
+        self.assertNotIn("url", payload["proxy"])
         self.assertFalse(payload["account_proxy_list_enabled"])
         self.assertEqual(payload["account_proxy_list"], [])
 
@@ -118,8 +121,19 @@ class ProxySettingsApiTests(unittest.TestCase):
         response = self.client.post("/api/proxy/settings", headers=AUTH_HEADERS, json={})
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
-        self.assertEqual(payload["proxy"]["url"], "http://old.example:8080")
+        self.assertEqual(payload["proxy"]["urls"], ["http://old.example:8080"])
         self.assertEqual(payload["account_proxy_list"], ["http://keep.example:1"])
+
+    def test_proxy_url_accepts_list_and_newlines(self) -> None:
+        response = self.client.post(
+            "/api/proxy/settings",
+            headers=AUTH_HEADERS,
+            json={"proxy_enabled": True, "proxy_url": ["http://a:1", "http://no_proxy"]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["proxy"]["urls"], ["http://a:1", "http://no_proxy"])
+        self.assertNotIn("url", payload["proxy"])
 
 
 if __name__ == "__main__":

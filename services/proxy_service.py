@@ -19,14 +19,33 @@ from services.config import config
 FlareSolverrRequestMethod = Callable[[str, bytes, dict[str, str], float], bytes]
 
 
+NO_PROXY_HOSTS = {"no_proxy"}
+
+
+def is_no_proxy_url(url: str) -> bool:
+    """Return True for the sentinel that means 'do not use a proxy'."""
+    candidate = str(url or "").strip()
+    if not candidate:
+        return False
+    lowered = candidate.lower().rstrip("/")
+    if lowered in NO_PROXY_HOSTS:
+        return True
+    parsed = urlparse(candidate if "://" in candidate else f"http://{candidate}")
+    host = str(parsed.hostname or "").strip().lower()
+    return host in NO_PROXY_HOSTS
+
+
 def normalize_proxy_url(url: str) -> str:
     """Normalize proxy URLs for curl_cffi.
 
     SOCKS proxies should use remote-DNS resolution by default, so generic
     ``socks://`` and ``socks5://`` inputs are upgraded to ``socks5h://``.
     HTTP/HTTPS/socks5h inputs are otherwise left untouched except trimming.
+    ``http://no_proxy`` (and bare ``no_proxy``) means direct / no proxy.
     """
     candidate = str(url or "").strip()
+    if is_no_proxy_url(candidate):
+        return ""
     if candidate and "://" not in candidate:
         candidate = _colon_proxy_to_url(candidate)
     lowered = candidate.lower()
@@ -541,14 +560,32 @@ def _redact_url_credentials(text: str) -> str:
     )
 
 
-def test_proxy(url: str = "", *, timeout: float = 15.0) -> dict:
-    candidate = normalize_proxy_url(_clean(url))
-    proxy_source = "input"
-    if not candidate:
-        profile = proxy_settings.get_profile(upstream=True)
-        candidate = profile.proxy_url
-        proxy_source = profile.proxy_source
-    result_base = {"proxy_source": proxy_source, "has_proxy": bool(candidate)}
+def _split_proxy_test_urls(url: str = "", urls: list[str] | None = None) -> list[str]:
+    if urls is not None:
+        return [str(item or "").strip() for item in urls if str(item or "").strip()]
+    text = str(url or "").replace("\r\n", "\n").replace("\r", "\n")
+    return [line.strip() for line in text.split("\n") if line.strip()]
+
+
+def _probe_proxy(url: str, *, timeout: float = 15.0, proxy_source: str = "input") -> dict:
+    raw = _clean(url)
+    result_base = {
+        "url": raw,
+        "proxy_source": proxy_source,
+        "skipped": False,
+    }
+    if is_no_proxy_url(raw):
+        return {
+            "ok": True,
+            "status": 0,
+            "latency_ms": 0,
+            "error": None,
+            "has_proxy": False,
+            **result_base,
+            "skipped": True,
+        }
+    candidate = normalize_proxy_url(raw)
+    result_base["has_proxy"] = bool(candidate)
     if not candidate:
         return {
             "ok": False,
@@ -592,6 +629,56 @@ def test_proxy(url: str = "", *, timeout: float = 15.0) -> dict:
         }
     finally:
         session.close()
+
+
+def _aggregate_proxy_test(results: list[dict]) -> dict:
+    failed = [item for item in results if not item.get("ok")]
+    error = None
+    if failed:
+        parts = []
+        for item in failed:
+            label = _redact_url_credentials(str(item.get("url") or "").strip() or "(empty)")
+            parts.append(f"{label}: {item.get('error') or 'unknown error'}")
+        error = "；".join(parts)
+    latency_ms = max((int(item.get("latency_ms") or 0) for item in results), default=0)
+    status = int(results[0].get("status") or 0) if results and not failed else 0
+    return {
+        "ok": not failed and bool(results),
+        "status": status,
+        "latency_ms": latency_ms,
+        "error": error,
+        "proxy_source": "input" if results else "none",
+        "has_proxy": any(bool(item.get("has_proxy")) for item in results),
+        "results": results,
+        "failed": [_redact_url_credentials(str(item.get("url") or "")) for item in failed],
+    }
+
+
+def test_proxy(url: str = "", urls: list[str] | None = None, *, timeout: float = 15.0) -> dict:
+    candidates = _split_proxy_test_urls(url, urls)
+    if not candidates:
+        profile = proxy_settings.get_profile(upstream=True)
+        candidate = profile.proxy_url
+        proxy_source = profile.proxy_source
+        if not candidate:
+            return _aggregate_proxy_test(
+                [
+                    {
+                        "url": "",
+                        "ok": False,
+                        "status": 0,
+                        "latency_ms": 0,
+                        "error": "no active proxy configured",
+                        "proxy_source": proxy_source,
+                        "has_proxy": False,
+                        "skipped": False,
+                    }
+                ]
+            )
+        probed = _probe_proxy(candidate, timeout=timeout, proxy_source=proxy_source)
+        return _aggregate_proxy_test([probed])
+    results = [_probe_proxy(item, timeout=timeout) for item in candidates]
+    return _aggregate_proxy_test(results)
 
 
 def test_clearance(target_url: str = "https://chatgpt.com") -> dict:
@@ -645,7 +732,19 @@ def test_clearance(target_url: str = "https://chatgpt.com") -> dict:
     }
 
 
+def _is_dead_upstream_timeout(exc: BaseException) -> bool:
+    """Timeout with zero bytes means the proxy/path never started a response.
+
+    Repeating the same call up to proxy.rounds (5 x 30s) cannot recover this.
+    """
+    message = str(exc or "").lower()
+    has_timeout = "curl: (28)" in message or "timed out" in message or "timeout" in message
+    return has_timeout and "0 bytes received" in message
+
+
 def _is_retryable_proxy_error(exc: BaseException) -> bool:
+    if _is_dead_upstream_timeout(exc):
+        return False
     name = exc.__class__.__name__.lower()
     message = str(exc or "").lower()
     markers = (
@@ -678,7 +777,20 @@ def request_with_proxy_retry(session: Session, method: str, url: str, **kwargs):
             return session.request(method, url, **kwargs)
         except Exception as exc:
             last_error = exc
-            if attempt >= rounds or not _is_retryable_proxy_error(exc):
+            final = attempt >= rounds or not _is_retryable_proxy_error(exc)
+            from utils.image_trace import trace_proxy_http_retry
+
+            trace_proxy_http_retry(
+                method=method,
+                url=url,
+                attempt=attempt,
+                rounds=rounds,
+                sleep=interval_secs,
+                exc=exc,
+                final=final,
+                timeout=kwargs.get("timeout"),
+            )
+            if final:
                 raise
             if interval_secs > 0:
                 time.sleep(interval_secs)

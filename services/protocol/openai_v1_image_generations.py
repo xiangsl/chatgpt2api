@@ -17,6 +17,7 @@ from services.protocol.conversation import (
 )
 from utils.image_format import encode_image_bytes, normalize_output_format, output_format_from_bytes, parse_output_compression
 from utils.image_tokens import count_image_output_items_tokens, image_size_from_bytes, image_usage, parse_image_size
+from utils.image_trace import trace_log
 
 EXTREME_ASPECT_RATIO_THRESHOLD = 2
 POOL_RETRY_ATTEMPTS = 3
@@ -190,7 +191,9 @@ def finalize_image_outputs(
         )
         if response_format == "url":
             apply_url_response_format(result.get("data"), base_url)
-        yield replace(output, data=result.get("data") or [])
+        packed = result.get("data") or []
+        trace_log("api", "image_pack_end", count=len(packed), fmt=response_format)
+        yield replace(output, data=packed)
 
 
 def normalize_collected_image_sizes(

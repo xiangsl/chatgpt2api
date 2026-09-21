@@ -46,7 +46,7 @@ export type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
 
 const DEFAULT_PROXY: GlobalProxySettings = {
   enabled: false,
-  url: "",
+  urls: [],
   interval_secs: 2,
   rounds: 3,
 };
@@ -123,12 +123,22 @@ function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
   };
 }
 
+function splitProxyLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizeProxy(value: unknown): GlobalProxySettings {
   const source = typeof value === "object" && value !== null ? value as Partial<GlobalProxySettings> : {};
+  const urls = Array.isArray(source.urls)
+    ? source.urls.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
   return {
     ...DEFAULT_PROXY,
     enabled: Boolean(source.enabled),
-    url: String(source.url || ""),
+    urls,
     interval_secs: Math.max(0, Number(source.interval_secs ?? DEFAULT_PROXY.interval_secs) || 0),
     rounds: Math.max(1, Number(source.rounds ?? DEFAULT_PROXY.rounds) || 1),
   };
@@ -497,7 +507,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           const normalized = normalizeProxy(config.proxy);
           return {
             enabled: Boolean(normalized.enabled),
-            url: normalized.url.trim(),
+            urls: (normalized.urls || []).map((item) => String(item || "").trim()).filter(Boolean),
             interval_secs: normalized.interval_secs,
             rounds: normalized.rounds,
           };
@@ -669,7 +679,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           ...state.config,
           proxy: {
             ...current,
-            url: value,
+            urls: splitProxyLines(value),
           },
         },
       };

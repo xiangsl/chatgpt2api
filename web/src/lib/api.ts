@@ -164,7 +164,7 @@ export type ThirdPartyAppsSettings = {
 
 export type GlobalProxySettings = {
   enabled: boolean;
-  url: string;
+  urls: string[];
   interval_secs: number;
   rounds: number;
 };
@@ -974,7 +974,18 @@ export async function fetchSub2APIImportJob(serverId: string) {
 
 export type ProxySettings = {
   enabled: boolean;
+  urls: string[];
+};
+
+export type ProxyProbeResult = {
   url: string;
+  ok: boolean;
+  status: number;
+  latency_ms: number;
+  error: string | null;
+  skipped?: boolean;
+  has_proxy?: boolean;
+  proxy_source?: string;
 };
 
 export type ProxyTestResult = {
@@ -984,6 +995,8 @@ export type ProxyTestResult = {
   error: string | null;
   proxy_source?: string;
   has_proxy?: boolean;
+  results?: ProxyProbeResult[];
+  failed?: string[];
 };
 
 export type ClearanceTestResult = {
@@ -1007,10 +1020,10 @@ export async function updateProxy(updates: { enabled?: boolean; url?: string }) 
   });
 }
 
-export async function testProxy(url?: string) {
+export async function testProxy(url?: string, urls?: string[]) {
   return httpRequest<{ result: ProxyTestResult }>("/api/proxy/test", {
     method: "POST",
-    body: { url: url ?? "" },
+    body: urls ? { urls } : { url: url ?? "" },
   });
 }
 

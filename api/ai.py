@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.image_inputs import parse_image_edit_request, read_image_sources
 from api.support import require_identity, resolve_image_base_url
+from services.config import config
 from services.content_filter import check_request, request_shape, request_text
 from services.editable_file_task_service import editable_file_task_service
 from services.log_service import LoggedCall
@@ -19,6 +20,7 @@ from services.protocol import (
     openai_v1_response,
     openai_search,
 )
+from utils.image_trace import start_image_trace, trace_log, trace_span
 
 
 class ImageGenerationRequest(BaseModel):
@@ -101,8 +103,27 @@ def create_router() -> APIRouter:
         payload = body.model_dump(mode="python")
         payload["base_url"] = resolve_image_base_url(request)
         call = LoggedCall(identity, "/v1/images/generations", body.model, "文生图", request_text=body.prompt)
-        await filter_or_log(call, body.prompt)
-        return await call.run(openai_v1_image_generations.handle, payload)
+        start_image_trace(request.headers)
+        trace_span("api")
+        trace_log(
+            "api",
+            "api.start",
+            endpoint=call.endpoint,
+            model=call.model,
+            n=body.n,
+            stream=bool(body.stream),
+            poll=config.image_poll_timeout_secs,
+            sse=config.image_sse_timeout_secs,
+        )
+        ended = False
+        try:
+            await filter_or_log(call, body.prompt)
+            result = await call.run(openai_v1_image_generations.handle, payload)
+            ended = True
+            return result
+        finally:
+            if not ended:
+                trace_log("api", "api.end", level="WARNING", status="failed")
 
     @router.post("/v1/images/edits")
     async def edit_images(
@@ -114,12 +135,33 @@ def create_router() -> APIRouter:
         prompt = str(payload["prompt"])
         model = str(payload["model"])
         call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_text=prompt)
-        await filter_or_log(call, prompt)
-        payload["images"] = await read_image_sources(image_sources)
-        if mask_sources:
-            payload["mask"] = await read_image_sources(mask_sources)
-        payload["base_url"] = resolve_image_base_url(request)
-        return await call.run(openai_v1_image_edit.handle, payload)
+        start_image_trace(request.headers)
+        trace_span("api")
+        trace_log(
+            "api",
+            "api.start",
+            endpoint=call.endpoint,
+            model=call.model,
+            n=int(payload.get("n") or 1),
+            stream=bool(payload.get("stream")),
+            image_count=len(image_sources),
+            has_mask=bool(mask_sources),
+            poll=config.image_poll_timeout_secs,
+            sse=config.image_sse_timeout_secs,
+        )
+        ended = False
+        try:
+            await filter_or_log(call, prompt)
+            payload["images"] = await read_image_sources(image_sources)
+            if mask_sources:
+                payload["mask"] = await read_image_sources(mask_sources)
+            payload["base_url"] = resolve_image_base_url(request)
+            result = await call.run(openai_v1_image_edit.handle, payload)
+            ended = True
+            return result
+        finally:
+            if not ended:
+                trace_log("api", "api.end", level="WARNING", status="failed")
 
     @router.post("/v1/chat/completions")
     async def create_chat_completion(body: ChatCompletionRequest, authorization: str | None = Header(default=None)):

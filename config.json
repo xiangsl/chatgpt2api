@@ -14,7 +14,7 @@
     "info"
   ],
   "proxy": {
-    "url": "",
+    "urls": [],
     "interval_secs": 2,
     "rounds": 3
   },

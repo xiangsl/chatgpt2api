@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { testProxy, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
@@ -22,25 +23,28 @@ export function ProxySettingsCard() {
   const setProxyField = useSettingsStore((state) => state.setProxyField);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
 
-  const proxy = config?.proxy?.url ?? "";
+  const proxy = (config?.proxy?.urls || []).join("\n");
   const proxyIntervalSecs = config?.proxy?.interval_secs ?? 2;
   const proxyRounds = config?.proxy?.rounds ?? 3;
 
   const handleTest = async () => {
-    const candidate = proxy.trim();
-    if (!candidate) {
+    const urls = proxy
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!urls.length) {
       toast.error("请先填写代理地址");
       return;
     }
     setIsTesting(true);
     setTestResult(null);
     try {
-      const data = await testProxy(candidate);
+      const data = await testProxy("", urls);
       setTestResult(data.result);
       if (data.result.ok) {
-        toast.success(`代理可用（${data.result.latency_ms} ms，HTTP ${data.result.status}）`);
+        toast.success(`全部代理可用（${urls.length} 个）`);
       } else {
-        toast.error(`代理不可用：${data.result.error ?? "未知错误"}`);
+        toast.error(data.result.error ?? "部分代理不可用");
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "测试代理失败");
@@ -60,7 +64,7 @@ export function ProxySettingsCard() {
             <div>
               <h2 className="text-lg font-semibold tracking-tight">全局代理</h2>
               <p className="text-sm text-stone-500">
-                GPT 上游在无账号代理时走此代理；图片下载/上传走直连。保存后立即生效。
+                GPT 上游在无账号代理时从列表随机选一个；`http://no_proxy` 表示直连。图片下载/上传仍走直连。保存后立即生效。
               </p>
             </div>
           </div>
@@ -77,17 +81,17 @@ export function ProxySettingsCard() {
           <>
             <div className="space-y-2">
               <label className="text-sm font-medium text-stone-700">代理地址</label>
-              <Input
+              <Textarea
                 value={proxy}
                 onChange={(event) => {
                   setProxy(event.target.value);
                   setTestResult(null);
                 }}
-                placeholder="http://user:pass@127.0.0.1:7890"
-                className="h-11 rounded-xl border-stone-200 bg-white"
+                placeholder={"http://user:pass@127.0.0.1:7890\nhttp://no_proxy"}
+                className="min-h-24 rounded-xl border-stone-200 bg-white font-mono text-xs"
               />
               <p className="text-sm text-stone-500">
-                支持 http / https / socks5。示例：`http://127.0.0.1:7890`、`socks5://127.0.0.1:1080`。socks5 会自动转为 socks5h。
+                一行一个。支持 http / https / socks5。socks5 会自动转为 socks5h。`http://no_proxy` 表示不走代理。
               </p>
             </div>
 
@@ -117,15 +121,24 @@ export function ProxySettingsCard() {
 
             {testResult ? (
               <div
-                className={`rounded-xl border px-4 py-3 text-sm leading-6 ${
+                className={`space-y-1 rounded-xl border px-4 py-3 text-sm leading-6 ${
                   testResult.ok
                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                     : "border-rose-200 bg-rose-50 text-rose-800"
                 }`}
               >
-                {testResult.ok
-                  ? `代理可用：HTTP ${testResult.status}，用时 ${testResult.latency_ms} ms`
-                  : `代理不可用：${testResult.error ?? "未知错误"}（用时 ${testResult.latency_ms} ms）`}
+                {(testResult.results && testResult.results.length > 0
+                  ? testResult.results
+                  : [{ url: "", ok: testResult.ok, status: testResult.status, latency_ms: testResult.latency_ms, error: testResult.error }]
+                ).map((item, index) => (
+                  <div key={`${item.url}-${index}`}>
+                    {item.skipped
+                      ? `${item.url || "http://no_proxy"}：直连（跳过探测）`
+                      : item.ok
+                        ? `${item.url || "代理"}：可用，HTTP ${item.status}，${item.latency_ms} ms`
+                        : `${item.url || "代理"}：不可用，${item.error ?? "未知错误"}`}
+                  </div>
+                ))}
               </div>
             ) : null}
 

@@ -4,6 +4,7 @@ import copy
 from dataclasses import dataclass
 import json
 import os
+import random
 import sys
 from pathlib import Path
 from threading import Lock
@@ -79,7 +80,7 @@ DEFAULT_PROXY_RUNTIME = {
 
 DEFAULT_PROXY = {
     "enabled": False,
-    "url": "",
+    "urls": [],
     "interval_secs": 2,
     "rounds": 3,
 }
@@ -257,7 +258,7 @@ def _normalize_proxy_settings(value: object) -> dict[str, object]:
     source = value if isinstance(value, dict) else {}
     return {
         "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_PROXY["enabled"])),
-        "url": str(source.get("url") or "").strip(),
+        "urls": _normalize_account_proxy_list(source.get("urls")),
         "interval_secs": _normalize_positive_int(
             source.get("interval_secs"),
             int(DEFAULT_PROXY["interval_secs"]),
@@ -758,7 +759,12 @@ class ConfigStore:
             if "proxy_url" in source:
                 value = source.get("proxy_url")
                 if value is not None:
-                    proxy["url"] = "" if _is_clear_sentinel(value) else str(value).strip()
+                    if _is_clear_sentinel(value):
+                        proxy["urls"] = []
+                    elif isinstance(value, (str, list)):
+                        proxy["urls"] = _normalize_account_proxy_list(value)
+                    else:
+                        raise ValueError("proxy_url 需为字符串、字符串数组，或 -1")
             updates["proxy"] = proxy
 
         if "account_proxy_list_enabled" in source:
@@ -786,7 +792,10 @@ class ConfigStore:
         proxy = self.get_proxy_config()
         if not bool(proxy.get("enabled")):
             return ""
-        return str(proxy.get("url") or "").strip()
+        urls = [str(item).strip() for item in (proxy.get("urls") or []) if str(item).strip()]
+        if not urls:
+            return ""
+        return str(random.choice(urls) or "").strip()
 
     def get_proxy_retry_settings(self) -> dict[str, object]:
         proxy = self.get_proxy_config()

@@ -4,6 +4,7 @@ import base64
 import json
 import re
 import time
+from contextvars import copy_context
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Iterator
@@ -28,6 +29,7 @@ from utils.helper import (
     split_image_model,
 )
 from utils.image_tokens import count_image_content_tokens
+from utils.image_trace import bind_trace, trace_log, trace_span
 from utils.log import logger
 
 
@@ -868,6 +870,17 @@ def stream_image_outputs(
     file_ids = [str(item) for item in last.get("file_ids") or []]
     sediment_ids = [str(item) for item in last.get("sediment_ids") or []]
     message = str(last.get("text") or "").strip()
+    bind_trace(conversation_id=conversation_id)
+    trace_span("image.resolve")
+    trace_log(
+        "image.resolve",
+        "image_resolve_start",
+        conversation_id=conversation_id,
+        file_ids=file_ids,
+        sediment_ids=sediment_ids,
+        tool_invoked=last.get("tool_invoked"),
+        turn_use_case=last.get("turn_use_case"),
+    )
     logger.info({
         "event": "image_stream_resolve_start",
         "conversation_id": conversation_id,
@@ -1301,7 +1314,7 @@ def _generate_single_image(
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 0
     # 内容政策违规错误最大重试次数（换账号重试，不同归属地政策可能不同）
-    MAX_CONTENT_POLICY_RETRIES = 1
+    MAX_CONTENT_POLICY_RETRIES = 0
     # skipped_mainline 错误最大换号重试次数
     MAX_SKIPPED_MAINLINE_RETRIES = 1
     # SSE 读流错误最大换号重试次数
@@ -1330,6 +1343,7 @@ def _generate_single_image(
         try:
             if request.progress_callback:
                 request.progress_callback("getting_account")
+            trace_span("account")
             plan_type, _ = split_image_model(request.model)
             codex_model = is_codex_image_model(request.model)
             token = account_service.get_available_access_token(
@@ -1347,6 +1361,13 @@ def _generate_single_image(
         returned_result = False
         account = account_service.get_account(token) or {}
         account_email = str(account.get("email") or "").strip()
+        bind_trace(index=index, total=total, account_email=account_email)
+        trace_log(
+            "account",
+            "account_acquired",
+            plan_type=plan_type or "",
+            source="codex" if codex_model else "web",
+        )
         logger.debug({
             "event": "image_account_lookup",
             "token_prefix": token[:12] + "..." if len(token) > 12 else token,
@@ -1421,6 +1442,13 @@ def _generate_single_image(
                         "index": index,
                         "error": str(exc)[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_poll_timeout_retry",
+                        level="WARNING",
+                        retry_count=poll_timeout_retry_count,
+                        error=str(exc)[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_poll_timeout_exhausted_retries",
@@ -1447,6 +1475,13 @@ def _generate_single_image(
                         "index": index,
                         "error": str(exc)[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_content_policy_retry",
+                        level="WARNING",
+                        retry_count=content_policy_retry_count,
+                        error=str(exc)[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_content_policy_exhausted_retries",
@@ -1488,6 +1523,14 @@ def _generate_single_image(
                         "conversation_id": getattr(exc, "conversation_id", ""),
                         "error": error_text[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_stream_skipped_mainline_retry",
+                        level="WARNING",
+                        retry_count=skipped_mainline_retry_count,
+                        conversation_id=getattr(exc, "conversation_id", ""),
+                        error=error_text[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_stream_skipped_mainline_exhausted_retries",
@@ -1516,6 +1559,13 @@ def _generate_single_image(
                         "force_image_generation_instruction": True,
                         "error": error_text[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_model_text_reply_retry",
+                        level="WARNING",
+                        retry_count=text_reply_retry_count,
+                        error=error_text[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_model_text_reply_exhausted_retries",
@@ -1544,6 +1594,12 @@ def _generate_single_image(
                 "index": index,
             })
             if not emitted_for_token and is_token_invalid_error(last_error):
+                trace_log(
+                    "retry",
+                    "image_token_invalid_retry",
+                    level="WARNING",
+                    error=last_error[:200],
+                )
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:
                     token = refreshed_token
@@ -1562,6 +1618,13 @@ def _generate_single_image(
                         "index": index,
                         "error": last_error[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_stream_skipped_mainline_retry",
+                        level="WARNING",
+                        retry_count=skipped_mainline_retry_count,
+                        error=last_error[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_stream_skipped_mainline_exhausted_retries",
@@ -1582,6 +1645,13 @@ def _generate_single_image(
                         "index": index,
                         "error": last_error[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_stream_tls_retry",
+                        level="WARNING",
+                        retry_count=tls_retry_count,
+                        error=last_error[:200],
+                    )
                     time.sleep(min(2.0 * tls_retry_count, 10.0))
                     continue
             # 连接超时错误（curl 28）：同账号短等待重试，不切换账号
@@ -1598,6 +1668,14 @@ def _generate_single_image(
                         "wait_secs": wait_secs,
                         "error": last_error[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_stream_conn_timeout_retry",
+                        level="WARNING",
+                        retry_count=conn_timeout_retry_count,
+                        wait_secs=wait_secs,
+                        error=last_error[:200],
+                    )
                     time.sleep(wait_secs)
                     continue
             if not emitted_for_token and token and is_image_sse_stream_error(last_error, exc):
@@ -1625,6 +1703,13 @@ def _generate_single_image(
                         "index": index,
                         "error": last_error[:200],
                     })
+                    trace_log(
+                        "retry",
+                        "image_stream_sse_error_retry",
+                        level="WARNING",
+                        retry_count=sse_stream_retry_count,
+                        error=last_error[:200],
+                    )
                     continue
                 logger.warning({
                     "event": "image_stream_sse_error_exhausted_retries",
@@ -1688,7 +1773,8 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
     errors: dict[int, Exception] = {}
     with ThreadPoolExecutor(max_workers=request.n) as executor:
         for index in range(1, request.n + 1):
-            future = executor.submit(_generate_single_image, request, index, request.n)
+            ctx = copy_context()
+            future = executor.submit(ctx.run, _generate_single_image, request, index, request.n)
             futures[future] = index
 
         # 按完成顺序收集结果

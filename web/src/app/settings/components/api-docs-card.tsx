@@ -225,12 +225,12 @@ const docs: ApiDoc[] = [
     input: [
       ["Authorization", "header", "Bearer <admin-auth-key>，需管理员密钥。"],
       ["proxy_enabled", "boolean | -1", "可选，是否启用全局代理；传 -1 表示关闭。"],
-      ["proxy_url", "string | -1", "可选，全局代理地址；传 -1 表示清空。"],
+      ["proxy_url", "string | string[] | -1", "可选，写入全局代理列表 urls；换行字符串或数组；http://no_proxy 表示直连；传 -1 表示清空。"],
       ["account_proxy_list_enabled", "boolean | -1", "可选，是否启用账号代理列表；传 -1 表示关闭。"],
       ["account_proxy_list", "string[] | string | -1", "可选，账号代理列表（数组或换行分隔字符串）；传 -1 表示清空。"],
     ],
     output: [
-      ["proxy", "object", "当前全局代理配置，含 enabled / url / interval_secs / rounds。"],
+      ["proxy", "object", "当前全局代理配置，含 enabled / urls / interval_secs / rounds。每次请求从 urls 中随机选一个。"],
       ["account_proxy_list_enabled", "boolean", "账号代理列表是否启用。"],
       ["account_proxy_list", "string[]", "当前账号代理列表。"],
       ["accounts_per_proxy", "number", "每个代理连续分配的账号数量。"],
@@ -238,7 +238,7 @@ const docs: ApiDoc[] = [
     example: (baseUrl: string, key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/api/proxy/settings \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${key}" \\
-  -d '{"proxy_enabled":true,"proxy_url":"http://127.0.0.1:7890","account_proxy_list_enabled":true,"account_proxy_list":["http://a:8080","http://b:8080"]}'`,
+  -d '{"proxy_enabled":true,"proxy_url":["http://127.0.0.1:7890","http://no_proxy"],"account_proxy_list_enabled":true,"account_proxy_list":["http://a:8080","http://b:8080"]}'`,
   },
   {
     title: "Access Token 导入",

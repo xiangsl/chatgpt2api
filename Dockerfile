@@ -55,6 +55,9 @@ COPY utils ./utils
 COPY scripts ./scripts
 COPY --from=web-build /app/web/out ./web_dist
 
+RUN chmod +x /app/scripts/docker-entrypoint.sh && sed -i 's/\r$//' /app/scripts/docker-entrypoint.sh
+
 EXPOSE 80
 
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80", "--access-log"]

@@ -4,6 +4,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from services.config import (
     DEFAULT_PROXY,
@@ -26,7 +27,7 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
 
     def test_defaults_are_safe_and_included_in_public_config(self) -> None:
         tmp_dir, store = self._make_store(
-            {"proxy": {"enabled": True, "url": " http://proxy.example:8080 ", "interval_secs": 2, "rounds": 3}}
+            {"proxy": {"enabled": True, "urls": ["http://proxy.example:8080"], "interval_secs": 2, "rounds": 3}}
         )
         with tmp_dir:
             expected_default = copy.deepcopy(DEFAULT_PROXY_RUNTIME)
@@ -40,7 +41,12 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
             public_config = store.get()
             self.assertEqual(
                 public_config["proxy"],
-                {"enabled": True, "url": "http://proxy.example:8080", "interval_secs": 2, "rounds": 3},
+                {
+                    "enabled": True,
+                    "urls": ["http://proxy.example:8080"],
+                    "interval_secs": 2,
+                    "rounds": 3,
+                },
             )
             self.assertEqual(public_config["proxy_runtime"], expected_public)
             self.assertNotIn("auth-key", public_config)
@@ -235,29 +241,62 @@ class ProxyRuntimeConfigTests(unittest.TestCase):
             self.assertEqual(store.get_proxy_settings(), "")
 
             updated = store.update(
-                {"proxy": {"enabled": True, "url": " http://proxy.example:8080 ", "interval_secs": "5", "rounds": 0}}
+                {"proxy": {"enabled": True, "urls": ["http://proxy.example:8080"], "interval_secs": "5", "rounds": 0}}
             )
             self.assertEqual(
                 updated["proxy"],
-                {"enabled": True, "url": "http://proxy.example:8080", "interval_secs": 5, "rounds": 1},
+                {
+                    "enabled": True,
+                    "urls": ["http://proxy.example:8080"],
+                    "interval_secs": 5,
+                    "rounds": 1,
+                },
             )
             self.assertEqual(store.get_proxy_settings(), "http://proxy.example:8080")
             self.assertEqual(
-                _normalize_proxy_settings({"url": "", "interval_secs": -1, "rounds": "abc"}),
-                {"enabled": False, "url": "", "interval_secs": 0, "rounds": 3},
+                _normalize_proxy_settings({"urls": [], "interval_secs": -1, "rounds": "abc"}),
+                {"enabled": False, "urls": [], "interval_secs": 0, "rounds": 3},
             )
             raw = json.loads(store.path.read_text(encoding="utf-8"))
-            self.assertEqual(raw["proxy"]["url"], "http://proxy.example:8080")
+            self.assertEqual(raw["proxy"]["urls"], ["http://proxy.example:8080"])
+            self.assertNotIn("url", raw["proxy"])
             self.assertTrue(raw["proxy"]["enabled"])
             self.assertEqual(raw["proxy"]["interval_secs"], 5)
             self.assertEqual(raw["proxy"]["rounds"], 1)
 
-            disabled = store.update({"proxy": {"enabled": False, "url": "http://proxy.example:8080"}})
+            disabled = store.update({"proxy": {"enabled": False, "urls": ["http://proxy.example:8080"]}})
             self.assertFalse(disabled["proxy"]["enabled"])
             self.assertEqual(store.get_proxy_settings(), "")
 
             enabled_list = store.update({"account_proxy_list_enabled": True})
             self.assertTrue(enabled_list["account_proxy_list_enabled"])
+
+    def test_global_proxy_urls_random_choice(self) -> None:
+        tmp_dir, store = self._make_store()
+        with tmp_dir:
+            ignored = _normalize_proxy_settings(
+                {"enabled": True, "url": "http://legacy.example:1", "urls": ["http://a:1", "http://no_proxy", "http://b:2"]}
+            )
+            self.assertEqual(ignored["urls"], ["http://a:1", "http://no_proxy", "http://b:2"])
+            self.assertNotIn("url", ignored)
+
+            updated = store.update(
+                {
+                    "proxy": {
+                        "enabled": True,
+                        "urls": ["http://a:1", "http://no_proxy", "http://b:2"],
+                    }
+                }
+            )
+            self.assertEqual(updated["proxy"]["urls"], ["http://a:1", "http://no_proxy", "http://b:2"])
+            with patch("services.config.random.choice", return_value="http://b:2"):
+                self.assertEqual(store.get_proxy_settings(), "http://b:2")
+            with patch("services.config.random.choice", return_value="http://no_proxy"):
+                self.assertEqual(store.get_proxy_settings(), "http://no_proxy")
+
+            leftover = _normalize_proxy_settings({"enabled": True, "url": "http://legacy.example:1"})
+            self.assertEqual(leftover["urls"], [])
+            self.assertEqual(leftover["enabled"], True)
 
 
 if __name__ == "__main__":

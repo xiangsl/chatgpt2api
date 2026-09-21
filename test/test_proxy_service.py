@@ -12,7 +12,9 @@ from services.proxy_service import (
     ClearanceBundle,
     FlareSolverrClearanceProvider,
     ProxySettingsStore,
+    _is_dead_upstream_timeout,
     _is_retryable_proxy_error,
+    is_no_proxy_url,
     normalize_proxy_url,
     request_with_proxy_retry,
 )
@@ -47,6 +49,10 @@ class ProxyServiceTests(unittest.TestCase):
         self.assertEqual(normalize_proxy_url("socks5://proxy.example:1080"), "socks5h://proxy.example:1080")
         self.assertEqual(normalize_proxy_url(" socks5h://proxy.example:1080 "), "socks5h://proxy.example:1080")
         self.assertEqual(normalize_proxy_url("   "), "")
+        self.assertTrue(is_no_proxy_url("http://no_proxy"))
+        self.assertTrue(is_no_proxy_url("HTTP://NO_PROXY/"))
+        self.assertEqual(normalize_proxy_url("http://no_proxy"), "")
+        self.assertEqual(normalize_proxy_url("no_proxy"), "")
 
     def test_build_session_kwargs_keeps_legacy_global_proxy_when_runtime_disabled(self) -> None:
         store = ProxySettingsStore(FakeConfig(legacy_proxy="  http://legacy.example:8080  "))
@@ -55,6 +61,14 @@ class ProxyServiceTests(unittest.TestCase):
 
         self.assertEqual(kwargs["impersonate"], "chrome")
         self.assertEqual(kwargs["proxy"], "http://legacy.example:8080")
+
+    def test_no_proxy_sentinel_clears_global_proxy(self) -> None:
+        store = ProxySettingsStore(FakeConfig(legacy_proxy="http://no_proxy"))
+
+        kwargs = store.build_session_kwargs(impersonate="chrome")
+
+        self.assertEqual(kwargs["impersonate"], "chrome")
+        self.assertNotIn("proxy", kwargs)
 
     def test_runtime_proxy_is_limited_to_upstream_scope_by_default(self) -> None:
         runtime = make_runtime(enabled=True, egress_mode="single_proxy", proxy_url="http://runtime.example:8080")
@@ -366,6 +380,34 @@ class ProxyServiceTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("[REDACTED]", result["error"])
         self.assertNotIn("user:pass", result["error"])
+        self.assertEqual(result["failed"], ["http://[REDACTED]@proxy.example:8080"])
+        self.assertEqual(len(result["results"]), 1)
+
+    def test_proxy_test_reports_each_url_and_skips_no_proxy(self) -> None:
+        class MixedSession:
+            def __init__(self, **kwargs: object) -> None:
+                self.proxy = kwargs.get("proxy")
+
+            def get(self, *args: object, **kwargs: object) -> object:
+                if self.proxy == "http://good.example:8080":
+                    response = type("Response", (), {"status_code": 200})()
+                    return response
+                raise RuntimeError("proxy failed")
+
+            def close(self) -> None:
+                pass
+
+        with patch("services.proxy_service.Session", MixedSession):
+            result = __import__("services.proxy_service", fromlist=["test_proxy"]).test_proxy(
+                urls=["http://good.example:8080", "http://no_proxy", "http://bad.example:8080"]
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["failed"], ["http://bad.example:8080"])
+        self.assertTrue(result["results"][0]["ok"])
+        self.assertTrue(result["results"][1]["skipped"])
+        self.assertFalse(result["results"][2]["ok"])
+        self.assertIn("http://bad.example:8080", result["error"])
 
     def test_concurrent_flaresolverr_refresh_uses_single_flight_per_proxy_and_host(self) -> None:
         runtime = make_runtime(
@@ -418,6 +460,30 @@ class ProxyRetryTests(unittest.TestCase):
         self.assertTrue(_is_retryable_proxy_error(TimeoutError("proxy timed out")))
         self.assertTrue(_is_retryable_proxy_error(RuntimeError("curl: (28) Operation timed out")))
         self.assertFalse(_is_retryable_proxy_error(RuntimeError("HTTP 500")))
+        zero_byte = RuntimeError(
+            "Failed to perform, curl: (28) Operation timed out after 30002 milliseconds with 0 bytes received"
+        )
+        self.assertTrue(_is_dead_upstream_timeout(zero_byte))
+        self.assertFalse(_is_retryable_proxy_error(zero_byte))
+
+    def test_request_with_proxy_retry_fails_fast_on_zero_byte_timeout(self) -> None:
+        calls = {"count": 0}
+
+        class FakeSession:
+            def request(self, method: str, url: str, **kwargs: object) -> dict[str, object]:
+                calls["count"] += 1
+                raise RuntimeError(
+                    "Failed to perform, curl: (28) Operation timed out after 30002 milliseconds with 0 bytes received"
+                )
+
+        with patch(
+            "services.proxy_service.config.get_proxy_retry_settings",
+            return_value={"interval_secs": 0, "rounds": 5},
+        ):
+            with self.assertRaises(RuntimeError):
+                request_with_proxy_retry(FakeSession(), "GET", "https://chatgpt.com/")
+
+        self.assertEqual(calls["count"], 1)
 
     def test_request_with_proxy_retry_retries_then_succeeds(self) -> None:
         calls = {"count": 0}

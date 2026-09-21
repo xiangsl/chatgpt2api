@@ -110,6 +110,14 @@ class LogService:
         self.path.write_text(content, encoding="utf-8")
         return {"removed": removed}
 
+    def reset(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.path.write_bytes(b"")
+
 
 log_service = LogService(DATA_DIR / "logs.jsonl")
 
@@ -358,3 +366,20 @@ class LoggedCall:
                 "account_email": email,
                 "conversation_id": conv_id,
             })
+        from utils.image_trace import bind_trace, classify_trace_error, current_trace, trace_log
+
+        if current_trace() is not None:
+            bind_trace(account_email=email, conversation_id=conv_id)
+            extra = {"status": status}
+            if error:
+                extra["error"] = error[:300]
+                why = classify_trace_error(error)
+                if why:
+                    extra["why"] = why
+            extra["image_count"] = len(collected_urls) if collected_urls else 0
+            trace_log(
+                "api",
+                "api.end",
+                level="WARNING" if status == "failed" else "INFO",
+                **extra,
+            )

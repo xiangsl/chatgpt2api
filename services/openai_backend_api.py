@@ -32,6 +32,7 @@ from utils.helper import (
     new_uuid,
     split_image_model,
 )
+from utils.image_trace import bind_trace, trace_log, trace_span
 from utils.log import logger
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from utils.turnstile import solve_turnstile_token
@@ -895,6 +896,8 @@ class OpenAIBackendAPI:
     def _prepare_image_conversation(self, prompt: str, requirements: ChatRequirements, model: str) -> str:
         """为图片生成准备 conduit token。"""
         path = "/backend-api/f/conversation/prepare"
+        trace_span("upstream.prepare")
+        trace_log("upstream.prepare", "image_step_start", step="conv", timeout=60, path=path)
         payload = {
             "action": "next",
             "fork_from_shared_post": False,
@@ -921,7 +924,9 @@ class OpenAIBackendAPI:
             timeout=60,
         )
         ensure_ok(response, path)
-        return response.json().get("conduit_token", "")
+        token = response.json().get("conduit_token", "")
+        trace_log("upstream.prepare", "image_prepare_end", has_token=bool(token))
+        return token
 
     def _decode_image_base64(self, image: str) -> bytes:
         """把 base64 图片字符串或本地路径解码成二进制。"""
@@ -940,6 +945,7 @@ class OpenAIBackendAPI:
 
     def _upload_image(self, image: str, file_name: str = "image.png") -> Dict[str, Any]:
         """上传一张 base64 图片，返回底层文件元数据。"""
+        trace_span("upstream.prepare")
         data = self._decode_image_base64(image)
         if (
                 image
@@ -988,7 +994,7 @@ class OpenAIBackendAPI:
             timeout=60,
         )
         ensure_ok(response, path)
-        return {
+        result = {
             "file_id": upload_meta["file_id"],
             "library_file_id": str(upload_meta.get("library_file_id") or ""),
             "file_name": file_name,
@@ -997,6 +1003,8 @@ class OpenAIBackendAPI:
             "width": width,
             "height": height,
         }
+        trace_log("upstream.prepare", "image_upload_end", width=width, height=height)
+        return result
 
     def _start_image_generation(self, prompt: str, requirements: ChatRequirements, conduit_token: str, model: str,
                                 references: Optional[list[Dict[str, Any]]] = None) -> requests.Response:
@@ -1193,6 +1201,8 @@ class OpenAIBackendAPI:
     ) -> str:
         """为 Images 2.5 准备 conduit token。"""
         path = "/backend-api/f/conversation/prepare"
+        trace_span("upstream.prepare")
+        trace_log("upstream.prepare", "image_step_start", step="conv", timeout=60, path=path)
         response = self.session.post(
             self.base_url + path,
             headers=self._image_headers(path, requirements),
@@ -1200,7 +1210,9 @@ class OpenAIBackendAPI:
             timeout=60,
         )
         ensure_ok(response, path)
-        return response.json().get("conduit_token", "")
+        token = response.json().get("conduit_token", "")
+        trace_log("upstream.prepare", "image_25_prepare_end", has_token=bool(token))
+        return token
 
     def _start_image_25_generation(
             self,
@@ -2318,6 +2330,18 @@ class OpenAIBackendAPI:
         last_hit_key: tuple[tuple[str, ...], tuple[str, ...]] | None = (
             (tuple(file_ids), tuple(sediment_ids)) if has_initial_ids else None
         )
+        trace_span("image.poll")
+        bind_trace(conversation_id=conversation_id)
+        trace_log(
+            "image.poll",
+            "image_poll_start",
+            conversation_id=conversation_id,
+            timeout_secs=timeout_secs,
+            initial_wait_secs=initial_wait,
+            interval_secs=interval,
+            initial_file_ids=file_ids,
+            initial_sediment_ids=sediment_ids,
+        )
         logger.info({
             "event": "image_poll_start",
             "conversation_id": conversation_id,
@@ -2341,7 +2365,31 @@ class OpenAIBackendAPI:
             if sleep_for > 0:
                 time.sleep(sleep_for)
 
+        last_http = 0
+        last_reason = ""
+        poll_logged = False
+
+        def _poll_end(status: str, level: str = "INFO", **extra: Any) -> None:
+            nonlocal poll_logged
+            if poll_logged:
+                return
+            poll_logged = True
+            payload: Dict[str, Any] = {
+                "status": status,
+                "attempts": attempt,
+                "timeout_secs": timeout_secs,
+            }
+            if last_http:
+                payload["http"] = last_http
+            if last_task_error:
+                payload["task_err"] = str(last_task_error)[:120]
+            if last_reason:
+                payload["why"] = last_reason
+            payload.update(extra)
+            trace_log("image.poll", "image_poll_end", level=level, **payload)
+
         def _retry_sleep(reason: str, status_code: int | None, error: str | None, retry_after: int | None) -> bool:
+            nonlocal last_http, last_reason
             # retry_after=0 means "retry immediately" — must not be coerced via falsy check.
             base = retry_after if retry_after is not None else min(2 ** min(attempt, 4), 16)
             backoff = base + random.uniform(0, 0.5)
@@ -2357,10 +2405,21 @@ class OpenAIBackendAPI:
                 "sleep_secs": round(sleep_for, 2),
             }
             if status_code is not None:
+                last_http = status_code
                 log_payload["status_code"] = status_code
             if error is not None:
                 log_payload["error"] = error
+            last_reason = reason
             logger.warning(log_payload)
+            trace_log(
+                "retry",
+                "image_poll_backoff",
+                level="WARNING",
+                sleep=int(sleep_for),
+                http=status_code,
+                why=reason,
+                times=attempt,
+            )
             time.sleep(sleep_for)
             return True
 
@@ -2395,12 +2454,15 @@ class OpenAIBackendAPI:
             try:
                 conversation = self._get_conversation(conversation_id)
             except UpstreamHTTPError as exc:
+                last_http = exc.status_code
                 if exc.status_code in (429, 500, 502, 503, 504):
                     if _retry_sleep("upstream_status", exc.status_code, None, exc.retry_after):
                         continue
                     break
+                _poll_end("error", level="WARNING", http=exc.status_code, err=type(exc).__name__, why=f"http{exc.status_code}")
                 raise
             except requests.exceptions.RequestException as exc:
+                last_reason = "network"
                 if _retry_sleep("network", None, str(exc), None):
                     continue
                 break
@@ -2426,6 +2488,7 @@ class OpenAIBackendAPI:
                         "attempt": attempt,
                         "error_msg": policy_msg[:200],
                     })
+                    _poll_end("policy", level="WARNING", error=policy_msg[:120], why="policy")
                     raise ImageContentPolicyError(policy_msg)
 
             logger.debug({"event": "image_poll_check", "conversation_id": conversation_id, "attempt": attempt,
@@ -2435,17 +2498,20 @@ class OpenAIBackendAPI:
                     # 先check再hit 机制关闭：直接返回首次发现的 file_ids
                     logger.info({"event": "image_poll_hit_no_settle", "conversation_id": conversation_id,
                                  "file_ids": file_ids, "sediment_ids": sediment_ids})
+                    _poll_end("hit", file_ids=file_ids, sediment_ids=sediment_ids)
                     return file_ids, sediment_ids
                 hit_key = (tuple(file_ids), tuple(sediment_ids))
                 if last_hit_key == hit_key:
                     logger.info({"event": "image_poll_hit", "conversation_id": conversation_id, "file_ids": file_ids,
                                  "sediment_ids": sediment_ids})
+                    _poll_end("hit", file_ids=file_ids, sediment_ids=sediment_ids)
                     return file_ids, sediment_ids
                 last_hit_key = hit_key
                 if not config.image_settle_enabled:
                     # 二次确认机制关闭：直接返回首次发现的 file_ids
                     logger.info({"event": "image_poll_hit_settle_disabled", "conversation_id": conversation_id,
                                  "file_ids": file_ids, "sediment_ids": sediment_ids})
+                    _poll_end("hit", file_ids=file_ids, sediment_ids=sediment_ids)
                     return file_ids, sediment_ids
                 logger.info({"event": "image_poll_hit_pending_settle", "conversation_id": conversation_id,
                              "file_ids": file_ids, "sediment_ids": sediment_ids,
@@ -2454,6 +2520,7 @@ class OpenAIBackendAPI:
                 if wait > 0:
                     time.sleep(wait)
                     continue
+                _poll_end("hit", file_ids=file_ids, sediment_ids=sediment_ids)
                 return file_ids, sediment_ids
             logger.debug({"event": "image_poll_wait", "conversation_id": conversation_id,
                           "elapsed_secs": round(time.time() - start, 1)})
@@ -2469,6 +2536,7 @@ class OpenAIBackendAPI:
             "initial_wait_exhausted_budget": attempt == 0,
             "last_task_error": last_task_error if last_task_error else None,
         })
+        _poll_end("timeout", level="WARNING", why="poll_timeout")
         exc = ImagePollTimeoutError(
             f"ChatGPT 生图超时（已等待 {timeout_secs} 秒）。"
             f"当前超时阈值可在 config.json 中调大 image_poll_timeout_secs，"
@@ -2674,6 +2742,13 @@ class OpenAIBackendAPI:
                     "file_ids": file_ids,
                     "sediment_ids": sediment_ids,
                 })
+                trace_log(
+                    "image.resolve",
+                    "image_resolve_skip_poll",
+                    conversation_id=conversation_id,
+                    file_ids=file_ids,
+                    sediment_ids=sediment_ids,
+                )
                 return self._resolve_image_urls(conversation_id, file_ids, sediment_ids)
         if poll and conversation_id:
             logger.info({
@@ -2720,13 +2795,34 @@ class OpenAIBackendAPI:
         return self._resolve_image_urls(conversation_id, file_ids, sediment_ids)
 
     def download_image_bytes(self, urls: list[str]) -> list[bytes]:
+        trace_span("image.download")
+        trace_log("image.download", "image_download_start", url_count=len(urls))
         images = []
-        for url in urls:
-            response = self._resource_get(url, timeout=120)
-            ensure_ok(response, "image_download")
-            if response.content not in images:
-                images.append(response.content)
-        return images
+        try:
+            for url in urls:
+                response = self._resource_get(url, timeout=120)
+                ensure_ok(response, "image_download")
+                if response.content not in images:
+                    images.append(response.content)
+            total_bytes = sum(len(item) for item in images)
+            trace_log(
+                "image.download",
+                "image_download_end",
+                status="ok",
+                image_count=len(images),
+                bytes_total=total_bytes,
+            )
+            return images
+        except Exception as exc:
+            trace_log(
+                "image.download",
+                "image_download_end",
+                level="WARNING",
+                status="failed",
+                image_count=len(images),
+                error=str(exc)[:300],
+            )
+            raise
 
     def stream_conversation(
             self,
@@ -2770,6 +2866,44 @@ class OpenAIBackendAPI:
             except Exception:
                 pass
 
+    def _stream_image_sse(self, model: str, start_response: Callable[[], Any]) -> Iterator[str]:
+        from utils.image_trace import classify_trace_error, trace_log, trace_span
+        trace_span("upstream.sse")
+        trace_log(
+            "upstream.sse",
+            "image_sse_start",
+            model=model,
+            sse=config.image_sse_timeout_secs,
+            post=300,
+        )
+        response = None
+        try:
+            response = start_response()
+            self._report_progress("generating")
+            yield from iter_sse_payloads(response, timeout_secs=config.image_sse_timeout_secs)
+            trace_log("upstream.sse", "image_sse_end", status="ok", model=model)
+        except Exception as exc:
+            why = classify_trace_error(exc)
+            extra = {
+                "status": "failed",
+                "model": model,
+                "err": type(exc).__name__,
+                "error": str(exc)[:300],
+            }
+            if why:
+                extra["why"] = why
+            status_code = getattr(exc, "status_code", None)
+            if status_code:
+                extra["http"] = status_code
+            trace_log("upstream.sse", "image_sse_end", level="WARNING", **extra)
+            raise
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
     def _stream_image_25_conversation(
             self,
             prompt: str,
@@ -2788,12 +2922,10 @@ class OpenAIBackendAPI:
         self._report_progress("preparing_conversation")
         conduit_token = self._prepare_image_25_conversation(prompt, requirements, model)
         self._report_progress("starting_generation")
-        response = self._start_image_25_generation(prompt, requirements, conduit_token, model, references)
-        self._report_progress("generating")
-        try:
-            yield from iter_sse_payloads(response, timeout_secs=config.image_sse_timeout_secs)
-        finally:
-            response.close()
+        yield from self._stream_image_sse(
+            model,
+            lambda: self._start_image_25_generation(prompt, requirements, conduit_token, model, references),
+        )
 
     def _stream_picture_conversation(
             self,
@@ -2812,15 +2944,15 @@ class OpenAIBackendAPI:
         self._report_progress("preparing_conversation")
         conduit_token = self._prepare_image_conversation(prompt, requirements, model)
         self._report_progress("starting_generation")
-        response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
-        self._report_progress("generating")
-        try:
-            yield from iter_sse_payloads(response, timeout_secs=config.image_sse_timeout_secs)
-        finally:
-            response.close()
+        yield from self._stream_image_sse(
+            model,
+            lambda: self._start_image_generation(prompt, requirements, conduit_token, model, references),
+        )
 
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用。"""
+        trace_span("upstream.prepare")
+        trace_log("upstream.prepare", "image_step_start", step="boot", timeout=30, path="/")
         response = self.session.get(
             self.base_url + "/",
             headers=self._bootstrap_headers(),
@@ -2830,13 +2962,16 @@ class OpenAIBackendAPI:
         self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
         if not self.pow_script_sources:
             self.pow_script_sources = [DEFAULT_POW_SCRIPT]
+        trace_log("upstream.prepare", "image_bootstrap_end")
 
     def _get_chat_requirements(self) -> ChatRequirements:
         """获取当前模式对话所需的 sentinel token（prepare + finalize 两步流程）。"""
+        trace_span("upstream.prepare")
         base = "/backend-api/sentinel/chat-requirements" if self.access_token else "/backend-anon/sentinel/chat-requirements"
         p_token = build_legacy_requirements_token(self.user_agent, self.pow_script_sources, self.pow_data_build)
 
         prepare_path = base + "/prepare"
+        trace_log("upstream.prepare", "image_step_start", step="req", timeout=30, path=prepare_path)
         response = self.session.post(
             self.base_url + prepare_path,
             headers=self._headers(prepare_path, {"Content-Type": "application/json"}),
@@ -2866,6 +3001,7 @@ class OpenAIBackendAPI:
             turnstile_token = solve_turnstile_token(turnstile_info["dx"], p_token) or ""
 
         finalize_path = base + "/finalize"
+        trace_log("upstream.prepare", "image_step_start", step="req", timeout=30, path=finalize_path)
         response = self.session.post(
             self.base_url + finalize_path,
             headers=self._headers(finalize_path, {"Content-Type": "application/json"}),
@@ -2884,6 +3020,7 @@ class OpenAIBackendAPI:
             message = "missing auth chat requirements token" if self.access_token else "missing chat requirements token"
             raise RuntimeError(f"{message}: {data}")
 
+        trace_log("upstream.prepare", "image_requirements_end")
         return ChatRequirements(
             token=token,
             proof_token=proof_token,
