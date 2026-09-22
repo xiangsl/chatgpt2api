@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from dataclasses import replace
 from typing import Any, Iterable, Iterator
 
@@ -18,11 +19,12 @@ from services.protocol.conversation import (
 from utils.image_format import encode_image_bytes, normalize_output_format, output_format_from_bytes, parse_output_compression
 from utils.image_tokens import count_image_output_items_tokens, image_size_from_bytes, image_usage, parse_image_size
 from utils.image_trace import trace_log
+from utils.log import logger
 
-EXTREME_ASPECT_RATIO_THRESHOLD = 2
-POOL_RETRY_ATTEMPTS = 3
+POOL_RETRY_ATTEMPTS = 1
 CONCURRENT_POOL_WORKERS = 2
 ASPECT_RATIO_TOLERANCE = 0.015
+STRETCH_ASPECT_RATIO_TOLERANCE = 0.05
 DIMENSION_TOLERANCE = 5
 
 
@@ -122,18 +124,7 @@ def is_auto_image_size(size: object) -> bool:
 def resolve_stream_image_outputs(request: ConversationRequest) -> Iterator[ImageOutput]:
     if is_auto_image_size(request.size):
         return stream_image_outputs_with_pool(request)
-    if is_extreme_aspect_ratio(request.size):
-        return stream_image_outputs_with_pools(request)
     return stream_image_outputs_with_ratio_retry(request)
-
-
-def is_extreme_aspect_ratio(size: object) -> bool:
-    if is_auto_image_size(size):
-        return False
-    width, height = parse_image_size(size)
-    if width <= 0 or height <= 0:
-        return False
-    return max(width / height, height / width) > EXTREME_ASPECT_RATIO_THRESHOLD
 
 
 def stream_image_outputs_with_ratio_retry(request: ConversationRequest) -> Iterator[ImageOutput]:
@@ -154,21 +145,36 @@ def stream_image_outputs_with_pools(
     best_score = outputs_aspect_ratio_score(seed_outputs, target_size) if seed_outputs else float("inf")
 
     for _ in range(POOL_RETRY_ATTEMPTS):
-        batch_results = _run_concurrent_image_pools(request)
-        for outputs in batch_results:
-            if outputs_have_close_aspect_ratio(outputs, target_size):
+        for outputs in _iter_concurrent_image_pools(request):
+            if outputs and outputs_have_close_aspect_ratio(outputs, target_size):
                 yield from outputs
                 return
             score = outputs_aspect_ratio_score(outputs, target_size)
-            if score < best_score:
+            if outputs and score < best_score:
                 best_score = score
                 best_outputs = outputs
 
     if best_outputs:
         yield from best_outputs
         return
-
     yield from stream_image_outputs_with_pool(request)
+
+
+def _iter_concurrent_image_pools(request: ConversationRequest) -> Iterator[list[ImageOutput]]:
+    with ThreadPoolExecutor(max_workers=CONCURRENT_POOL_WORKERS) as executor:
+        futures = [
+            executor.submit(copy_context().run, _collect_image_outputs, request)
+            for _ in range(CONCURRENT_POOL_WORKERS)
+        ]
+        for future in as_completed(futures):
+            try:
+                yield future.result()
+            except Exception:
+                continue
+
+
+def _collect_image_outputs(request: ConversationRequest) -> list[ImageOutput]:
+    return list(stream_image_outputs_with_pool(request))
 
 
 def finalize_image_outputs(
@@ -221,15 +227,25 @@ def normalize_collected_image_sizes(
             if same_format:
                 continue
             encoded_bytes = encode_image_bytes(image_bytes, output_format=target_format)
-        else:
-            if actual_size == target_size and same_format:
-                continue
+        elif actual_size == target_size and same_format:
+            continue
+        elif actual_size and aspect_ratio_close(actual_size, target_size, STRETCH_ASPECT_RATIO_TOLERANCE):
             encoded_bytes = encode_image_bytes(
                 image_bytes,
                 output_format=target_format,
                 width=target_size[0],
                 height=target_size[1],
             )
+        else:
+            if actual_size:
+                logger.info({
+                    "event": "image_stretch_skipped",
+                    "actual_size": f"{actual_size[0]}x{actual_size[1]}",
+                    "target_size": f"{target_size[0]}x{target_size[1]}",
+                })
+            if same_format:
+                continue
+            encoded_bytes = encode_image_bytes(image_bytes, output_format=target_format)
         if encoded_bytes == image_bytes:
             continue
         apply_resized_image_to_result_item(item, encoded_bytes, response_format, base_url)
@@ -248,22 +264,6 @@ def apply_url_response_format(data: object, base_url: str | None = None) -> None
             continue
         item.pop("b64_json", None)
         item["url"] = save_image_bytes(image_bytes, base_url, force=True)
-
-
-def _run_concurrent_image_pools(request: ConversationRequest) -> list[list[ImageOutput]]:
-    results: list[list[ImageOutput]] = []
-    with ThreadPoolExecutor(max_workers=CONCURRENT_POOL_WORKERS) as executor:
-        futures = [executor.submit(_collect_image_outputs, request) for _ in range(CONCURRENT_POOL_WORKERS)]
-        for future in as_completed(futures):
-            try:
-                results.append(future.result())
-            except Exception:
-                continue
-    return results
-
-
-def _collect_image_outputs(request: ConversationRequest) -> list[ImageOutput]:
-    return list(stream_image_outputs_with_pool(request))
 
 
 def outputs_have_close_aspect_ratio(outputs: list[ImageOutput], target_size: tuple[int, int]) -> bool:
@@ -298,7 +298,11 @@ def collect_result_image_sizes(outputs: list[ImageOutput]) -> list[tuple[int, in
     return sizes
 
 
-def aspect_ratio_close(actual_size: tuple[int, int], target_size: tuple[int, int]) -> bool:
+def aspect_ratio_close(
+    actual_size: tuple[int, int],
+    target_size: tuple[int, int],
+    tolerance: float = ASPECT_RATIO_TOLERANCE,
+) -> bool:
     actual_width, actual_height = actual_size
     target_width, target_height = target_size
     if actual_width == target_width and actual_height == target_height:
@@ -307,7 +311,7 @@ def aspect_ratio_close(actual_size: tuple[int, int], target_size: tuple[int, int
         return True
     target_ratio = target_width / target_height
     actual_ratio = actual_width / actual_height
-    return abs(actual_ratio - target_ratio) / target_ratio <= ASPECT_RATIO_TOLERANCE
+    return abs(actual_ratio - target_ratio) / target_ratio <= tolerance
 
 
 def image_bytes_from_result_item(item: dict[str, Any]) -> bytes | None:

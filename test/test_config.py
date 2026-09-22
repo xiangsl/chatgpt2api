@@ -69,6 +69,16 @@ class ConfigLoadingTests(unittest.TestCase):
             store.update({"account_persist_interval_seconds": 0})
             self.assertEqual(store.account_persist_interval_seconds, 1)
 
+    def test_image_trace_enabled_defaults_true_and_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "config.json"
+            config_path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = self.config_module.ConfigStore(config_path)
+            self.assertTrue(store.image_trace_enabled)
+            store.update({"image_trace_enabled": False})
+            self.assertFalse(store.image_trace_enabled)
+            self.assertFalse(store.get()["image_trace_enabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

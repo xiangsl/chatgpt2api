@@ -23,6 +23,15 @@ REQUEST_ID_HEADERS = (
 )
 
 
+def is_trace_enabled() -> bool:
+    try:
+        from services.config import config
+
+        return config.image_trace_enabled
+    except Exception:
+        return True
+
+
 def default_log_path() -> Path:
     from services.config import DATA_DIR
 
@@ -372,6 +381,8 @@ class ImageTrace:
         self._stage_started[module] = time.perf_counter()
 
     def log(self, module: str, event: str, *, level: str = "INFO", **fields: Any) -> None:
+        if not is_trace_enabled():
+            return
         if event == "api.end":
             if self._ended:
                 return

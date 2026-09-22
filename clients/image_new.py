@@ -9,7 +9,7 @@ import requests
 BASE_URL = "http://gpttap.top/v1"
 API_KEY = "sk-Ka00PMpOZ3xiYob65ByRjEo1NvrjHXksP7YBTSUl9FJMXoep"
 MODEL = "gpt-image-2.5-flare"
-PROMPT = "以雪为题，画一幅画"
+PROMPT = "以雪为题，生成一张雪景照片"
 SIZE = "3840x2160"
 QUALITY = "xhigh"
 OUTPUT_DIR = Path(__file__).parent / "outputs"

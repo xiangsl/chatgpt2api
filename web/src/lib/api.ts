@@ -194,6 +194,7 @@ export type SettingsConfig = {
   image_check_before_hit_enabled?: boolean;
   image_settle_secs?: number | string;
   image_timeout_retry_secs?: number | string;
+  image_trace_enabled?: boolean;
   auto_remove_invalid_accounts?: boolean;
   auto_remove_rate_limited_accounts?: boolean;
   auto_relogin_after_refresh?: boolean;

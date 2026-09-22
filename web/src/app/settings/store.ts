@@ -211,6 +211,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
     image_settle_secs: Number(config.image_settle_secs || 2.0),
     image_timeout_retry_secs: Number(config.image_timeout_retry_secs || 30),
+    image_trace_enabled: Boolean(config.image_trace_enabled !== false),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
@@ -345,6 +346,7 @@ type SettingsStore = {
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageSettleSecs: (value: string) => void;
   setImageTimeoutRetrySecs: (value: string) => void;
+  setImageTraceEnabled: (value: boolean) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setAutoReloginAfterRefresh: (value: boolean) => void;
@@ -500,6 +502,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
         image_settle_secs: Math.max(0.5, Number(config.image_settle_secs) || 2.0),
         image_timeout_retry_secs: Math.max(1, Number(config.image_timeout_retry_secs) || 30),
+        image_trace_enabled: Boolean(config.image_trace_enabled !== false),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
         auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
         auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
@@ -644,6 +647,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageTimeoutRetrySecs: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_timeout_retry_secs: value } } : {});
+  },
+
+  setImageTraceEnabled: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_trace_enabled: value } } : {});
   },
 
   setAutoRemoveInvalidAccounts: (value) => {

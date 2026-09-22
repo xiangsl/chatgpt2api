@@ -165,6 +165,14 @@ class ImageTraceTests(unittest.TestCase):
             trace_log("api", "api.start")
             self.assertFalse(path.exists())
 
+    def test_disabled_trace_does_not_write(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "image-trace.log"
+            start_image_trace({"x-request-id": "off-1"}, log_path=path)
+            with patch("utils.image_trace.is_trace_enabled", return_value=False):
+                trace_log("api", "api.start", endpoint="/v1/images/generations")
+            self.assertFalse(path.exists())
+
 
     def test_http_step_from_url(self) -> None:
         from utils.image_trace import http_step_from_url, short_http_path

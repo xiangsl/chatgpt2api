@@ -30,6 +30,7 @@ export function ConfigCard() {
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
+  const setImageTraceEnabled = useSettingsStore((state) => state.setImageTraceEnabled);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
@@ -318,6 +319,16 @@ export function ConfigCard() {
             />
             自动移除限流账号
           </label>
+          <div className="space-y-2">
+            <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+              <Checkbox
+                checked={Boolean(config?.image_trace_enabled !== false)}
+                onCheckedChange={(checked) => setImageTraceEnabled(Boolean(checked))}
+              />
+              图片追踪日志
+            </label>
+            <p className="text-xs text-stone-500">保存后立即生效。关闭后不再向 data/image-trace.log 追加生图过程日志。</p>
+          </div>
           <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
             <div>
               <label className="text-sm text-stone-700">控制台日志级别</label>

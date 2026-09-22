@@ -530,6 +530,11 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def image_trace_enabled(self) -> bool:
+        """是否写入 data/image-trace.log。保存配置后立即生效。"""
+        return _normalize_bool(self.data.get("image_trace_enabled"), True)
+
+    @property
     def image_check_before_hit_enabled(self) -> bool:
         """先check再hit：通过轮询确认 file_ids 存在后再返回，而非仅依赖 SSE 事件。"""
         value = self.data.get("image_check_before_hit_enabled", True)
@@ -643,6 +648,7 @@ class ConfigStore:
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_inflight_timeout_secs"] = self.image_inflight_timeout_secs
         data["image_parallel_generation"] = self.image_parallel_generation
+        data["image_trace_enabled"] = self.image_trace_enabled
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["auto_relogin_after_refresh"] = self.auto_relogin_after_refresh

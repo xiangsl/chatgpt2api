@@ -163,6 +163,50 @@ class ImageApiResponseFormatTests(unittest.TestCase):
         self.assertEqual(output_format_from_bytes(payload), "jpeg")
         self.assertEqual(image_size_from_bytes(payload), (64, 32))
 
+    def test_skips_stretch_when_aspect_ratio_differs(self) -> None:
+        original = _png_b64(64, 32)
+        outputs = [
+            ImageOutput(
+                kind="result",
+                model="gpt-image-2",
+                index=1,
+                total=1,
+                data=[{"b64_json": original, "revised_prompt": "cat"}],
+            ),
+        ]
+        with mock.patch(
+            "services.protocol.openai_v1_image_generations.save_image_bytes",
+            return_value="",
+        ) as save:
+            finalized = list(finalize_image_outputs(outputs, "128x128", "b64_json"))
+
+        self.assertEqual(finalized[0].data[0]["b64_json"], original)
+        self.assertEqual(image_size_from_bytes(base64.b64decode(original)), (64, 32))
+        save.assert_not_called()
+
+    def test_converts_format_without_stretch_when_aspect_ratio_differs(self) -> None:
+        with mock.patch(
+            "services.protocol.openai_v1_image_generations.save_image_bytes",
+            return_value="",
+        ):
+            finalized = list(
+                finalize_image_outputs(self._result(64, 32), "128x128", "b64_json", output_format="jpeg")
+            )
+
+        payload = base64.b64decode(finalized[1].data[0]["b64_json"])
+        self.assertEqual(output_format_from_bytes(payload), "jpeg")
+        self.assertEqual(image_size_from_bytes(payload), (64, 32))
+
+    def test_stretches_when_aspect_ratio_within_five_percent(self) -> None:
+        with mock.patch(
+            "services.protocol.openai_v1_image_generations.save_image_bytes",
+            return_value="",
+        ):
+            finalized = list(finalize_image_outputs(self._result(1024, 1024), "1024x1060", "b64_json"))
+
+        payload = base64.b64decode(finalized[1].data[0]["b64_json"])
+        self.assertEqual(image_size_from_bytes(payload), (1024, 1060))
+
 
 if __name__ == "__main__":
     unittest.main()
