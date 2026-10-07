@@ -66,12 +66,48 @@ class ImageGenerationError(Exception):
         return error_dict
 
 
+_UPSTREAM_FAILURE_RE = re.compile(
+    r"^(?P<context>.+?) failed: status=(?P<status>\d+), body=(?P<body>.*)\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+_GENERIC_IMAGE_FAILURE = "The image generation request failed. Please try again later."
+
+
+def _public_upstream_failure_message(context: str, status: int, body: str) -> str:
+    """把上游 HTTP 失败收成可区分的文案，不回传 body。"""
+    path = context.strip().lower()
+    if path == "image_upload" or "/backend-api/files" in path:
+        return f"Image upload failed (HTTP {status}). Please retry."
+    if path in {"bootstrap", "chat_requirements_prepare", "chat_requirements_finalize"}:
+        return f"Upstream session setup failed (HTTP {status}). Please retry."
+    if path.endswith("/conversation/prepare"):
+        return f"Upstream conversation prepare failed (HTTP {status}). Please retry."
+    if path.endswith("/f/conversation") or path.endswith("/codex/responses"):
+        if status == 429:
+            return "Upstream rate limited the image request (HTTP 429). Please retry later."
+        if status == 500 and not body.strip():
+            return "Upstream image conversation failed with an empty HTTP 500. Please retry."
+        if status in {500, 502, 503, 504}:
+            return f"Upstream image conversation failed (HTTP {status}). Please retry."
+        return f"Upstream rejected the image conversation (HTTP {status})."
+    if path == "image_download":
+        return f"Image download failed after generation (HTTP {status}). Please retry."
+    return f"Upstream image request failed (HTTP {status}). Please retry."
+
+
 def public_image_error_message(message: str) -> str:
     text = str(message or "").strip()
     lower = text.lower()
     if any(item in lower for item in ("backend-api/", "status=", "body=", "chatgpt.com", "upstreamhttperror")):
-        return "The image generation request failed. Please try again later."
-    return text or "The image generation request failed. Please try again later."
+        match = _UPSTREAM_FAILURE_RE.search(text)
+        if match:
+            return _public_upstream_failure_message(
+                match.group("context"),
+                int(match.group("status")),
+                match.group("body"),
+            )
+        return _GENERIC_IMAGE_FAILURE
+    return text or _GENERIC_IMAGE_FAILURE
 
 
 def is_token_invalid_error(message: str) -> bool:

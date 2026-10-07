@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from services.protocol.conversation import (
     FORCE_IMAGE_GENERATION_INSTRUCTION,
+    ImageGenerationError,
     build_image_prompt,
     force_image_generation_prompt,
     image_stream_error_message,
     is_async_image_tool_text_reply,
     is_skipped_mainline_error,
+    public_image_error_message,
 )
 from services.log_service import _image_error_response
 
@@ -81,6 +84,68 @@ class ImageErrorMessageTests(unittest.TestCase):
         self.assertTrue(is_async_image_tool_text_reply('{"n":1,"size":"1024x1024","prompt":"a cat"}'))
         self.assertFalse(is_async_image_tool_text_reply("已生成一张角色设定图"))
         self.assertFalse(is_async_image_tool_text_reply('{"prompt":"only prompt"}'))
+
+    def test_upstream_http_failures_keep_502_and_split_message(self):
+        cases = (
+            (
+                "/backend-api/files/abc/uploaded failed: status=503, body=unavailable",
+                "Image upload failed (HTTP 503). Please retry.",
+            ),
+            (
+                "image_upload failed: status=502, body=blob error",
+                "Image upload failed (HTTP 502). Please retry.",
+            ),
+            (
+                "chat_requirements_prepare failed: status=403, body=denied",
+                "Upstream session setup failed (HTTP 403). Please retry.",
+            ),
+            (
+                "/backend-api/f/conversation/prepare failed: status=500, body=temporary",
+                "Upstream conversation prepare failed (HTTP 500). Please retry.",
+            ),
+            (
+                "/backend-api/f/conversation failed: status=500, body=",
+                "Upstream image conversation failed with an empty HTTP 500. Please retry.",
+            ),
+            (
+                "/backend-api/f/conversation failed: status=502, body=bad gateway",
+                "Upstream image conversation failed (HTTP 502). Please retry.",
+            ),
+            (
+                "/backend-api/codex/responses failed: status=429, body=slow down",
+                "Upstream rate limited the image request (HTTP 429). Please retry later.",
+            ),
+            (
+                "/backend-api/f/conversation failed: status=400, body=bad request",
+                "Upstream rejected the image conversation (HTTP 400).",
+            ),
+            (
+                "image_download failed: status=502, body=missing",
+                "Image download failed after generation (HTTP 502). Please retry.",
+            ),
+            (
+                "bootstrap failed: status=500, body=",
+                "Upstream session setup failed (HTTP 500). Please retry.",
+            ),
+        )
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(public_image_error_message(raw), expected)
+                exc = ImageGenerationError(raw)
+                response = _image_error_response(exc)
+                self.assertEqual(response.status_code, 502)
+                body = json.loads(response.body)
+                self.assertEqual(body["error"]["code"], "upstream_error")
+                self.assertEqual(body["error"]["type"], "server_error")
+                self.assertEqual(body["error"]["message"], expected)
+                self.assertNotIn("body=", body["error"]["message"])
+
+    def test_unparsed_upstream_text_stays_generic(self):
+        raw = "chatgpt.com returned an unexpected page"
+        self.assertEqual(
+            public_image_error_message(raw),
+            "The image generation request failed. Please try again later.",
+        )
 
     def test_decompression_bomb_maps_to_400_encoding_error(self):
         import json
